@@ -1,0 +1,1781 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pi</title>
+<style>
+  :root {
+    --bg: #171512;
+    --panel: #1f1d19;
+    --panel2: #26231e;
+    --border: #35322a;
+    --border-soft: #2a2822;
+    --text: #e6e3dc;
+    --dim: #8d887c;
+    --dimmer: #5f5b52;
+    --accent: #d97757;
+    --accent-dim: #a05a42;
+    --ok: #8fbf7f;
+    --err: #e07856;
+    --code-bg: #131210;
+    --tok-kw: #c586c0;
+    --tok-str: #ce9178;
+    --tok-com: #6a9955;
+    --tok-num: #b5cea8;
+    --tok-fn: #dcdcaa;
+    --tok-add: #7ec699;
+    --tok-del: #e57373;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    display: flex; flex-direction: column;
+  }
+  ::selection { background: #4a3f35; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #332f28; border-radius: 5px; border: 2px solid var(--bg); }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  header {
+    display: flex; align-items: center; gap: 10px; padding: 9px 16px;
+    background: var(--panel); border-bottom: 1px solid var(--border-soft); flex-wrap: wrap;
+  }
+  .logo { font-weight: 700; font-size: 15px; color: var(--accent); }
+  .projpill {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 999px; padding: 4px 12px; font-size: 12.5px; cursor: pointer;
+    font-family: "SF Mono", ui-monospace, monospace;
+  }
+  .projpill:hover { border-color: var(--accent-dim); }
+  .projpill .arrow { color: var(--dim); }
+
+  #tabs {
+    display: flex; align-items: center; gap: 6px; padding: 6px 16px 0;
+    background: var(--panel); border-bottom: 1px solid var(--border-soft);
+    overflow-x: auto; scrollbar-width: thin;
+  }
+  .tab {
+    display: flex; align-items: center; gap: 7px; max-width: 220px;
+    background: transparent; border: 1px solid var(--border); border-bottom: none;
+    border-radius: 9px 9px 0 0; padding: 5px 10px; font-size: 12.5px; color: var(--dim);
+    cursor: pointer; white-space: nowrap; position: relative; top: 1px;
+  }
+  .tab .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dimmer); flex-shrink: 0; }
+  .tab.working .dot { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+  .tab.dead .dot { background: var(--err); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .tab .tname { overflow: hidden; text-overflow: ellipsis; font-family: "SF Mono", ui-monospace, monospace; }
+  .tab .rename { width: 130px; background: var(--panel); border: 1px solid var(--accent); border-radius: 4px;
+    color: var(--text); font: inherit; padding: 1px 5px; outline: none; }
+  .tab .tx { color: var(--dimmer); padding: 0 2px; font-size: 11px; }
+  .tab .tx:hover { color: var(--err); }
+  .tab.active { background: var(--bg); color: var(--text); border-color: var(--border); }
+  .tab.active .tname { color: var(--text); }
+  #tabnew {
+    background: none; border: 1px dashed var(--border); color: var(--dimmer);
+    border-radius: 8px; padding: 4px 10px; font-size: 12.5px; cursor: pointer;
+  }
+  #tabnew:hover { color: var(--text); border-color: var(--dim); }
+
+  .spacer { flex: 1; }
+  select {
+    appearance: none; background: var(--panel2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%238d887c'/%3E%3C/svg%3E") no-repeat right 9px center;
+    color: var(--text); border: 1px solid var(--border);
+    border-radius: 999px; padding: 4px 24px 4px 12px; font-size: 12.5px; cursor: pointer;
+  }
+  select:hover { border-color: var(--dim); }
+  .btn {
+    background: transparent; color: var(--dim); border: 1px solid var(--border);
+    border-radius: 999px; padding: 4px 12px; font-size: 12.5px; cursor: pointer;
+  }
+  .btn:hover { color: var(--text); border-color: var(--dim); }
+  .btn.solid { background: var(--panel2); color: var(--text); }
+  .btn:disabled { opacity: .35; cursor: default; }
+
+  #overlay {
+    display: none; position: fixed; inset: 0; background: #000a; z-index: 100;
+    align-items: flex-start; justify-content: center; padding-top: 12vh;
+  }
+  #overlay.show { display: flex; }
+  #modal {
+    width: 620px; max-width: 92vw; max-height: 70vh; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 14px; display: flex; flex-direction: column;
+    box-shadow: 0 20px 60px #000c;
+  }
+  #modal .mhead { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border-soft); }
+  #modal .mhead b { font-size: 14px; }
+  #modal .pathrow { display: flex; gap: 6px; padding: 10px 14px 0; align-items: center; }
+  #modal input {
+    flex: 1; min-width: 0; background: var(--code-bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 10px; font: 12.5px "SF Mono", ui-monospace, monospace;
+  }
+  #modal .list { overflow-y: auto; padding: 8px 6px; flex: 1; min-height: 120px; }
+  #modal .row {
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px;
+    cursor: pointer; font-size: 13px; font-family: "SF Mono", ui-monospace, monospace;
+  }
+  #modal .row:hover { background: var(--panel2); }
+  #modal .row.current { background: var(--panel2); outline: 1px solid var(--accent-dim); }
+  #modal .row .ico { color: var(--dim); }
+  #modal .row.recent .ico { color: var(--accent-dim); }
+  #modal .sec { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--dimmer); padding: 10px 10px 4px; }
+  #modal .mfoot { display: flex; gap: 8px; justify-content: flex-end; padding: 10px 14px; border-top: 1px solid var(--border-soft); }
+  #modal .mfoot .btn { padding: 6px 14px; }
+
+  #chatwrap { flex: 1; overflow-y: auto; position: relative; }
+  #chat { max-width: 820px; margin: 0 auto; padding: 20px 20px 30px; }
+
+  #activity {
+    max-width: 820px; margin: 0 auto; padding: 0 20px; height: 22px;
+    font-size: 13px; color: var(--dim); display: flex; align-items: center; gap: 8px;
+  }
+  #activity.hidden { visibility: hidden; }
+  .spin { display: inline-block; width: 14px; color: var(--accent); }
+
+  .empty { text-align: center; padding: 12vh 20px 0; }
+  .empty-logo { font-size: 44px; color: var(--accent); opacity: .85; }
+  .empty-title { font-size: 19px; font-weight: 600; margin-top: 10px; }
+  .empty-sub { color: var(--dim); font-size: 13.5px; margin-top: 5px; }
+  .empty-chips { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 22px; }
+  .empty-chips button {
+    background: var(--panel); border: 1px solid var(--border); color: var(--dim);
+    border-radius: 999px; padding: 7px 14px; font-size: 12.5px; cursor: pointer; text-align: left;
+  }
+  .empty-chips button:hover { color: var(--text); border-color: var(--accent-dim); }
+
+  .msg { margin-bottom: 4px; }
+  .msg.user { display: flex; gap: 10px; margin: 18px 0 6px; flex-wrap: wrap; }
+  .msg.user .g { color: var(--accent); font-weight: 700; }
+  .msg.user .txt { white-space: pre-wrap; word-wrap: break-word; }
+  .msg.user.bash .txt { font-family: "SF Mono", ui-monospace, monospace; font-size: 12.5px; color: #c8bfae; }
+  .msg.assistant { margin-top: 10px; }
+  .msg.sys { color: var(--dim); font-size: 12.5px; margin: 10px 0; }
+
+  .bashres { margin: 4px 0 10px; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--code-bg); overflow: hidden; }
+  .bashres pre {
+    margin: 0; padding: 9px 12px; font-family: "SF Mono", ui-monospace, monospace; font-size: 12px;
+    white-space: pre-wrap; word-wrap: break-word; max-height: 360px; overflow-y: auto; color: #cfc9bb;
+  }
+  .bashres .exit {
+    padding: 3px 12px 5px; font-size: 11px; color: var(--dimmer); border-top: 1px solid var(--border-soft);
+    font-family: "SF Mono", ui-monospace, monospace;
+  }
+  .bashres .exit.ok { color: var(--ok); }
+  .bashres .exit.bad { color: var(--err); }
+
+  .md > :first-child { margin-top: 0; }
+  .md p { margin: 0 0 10px; }
+  .md h1, .md h2, .md h3, .md h4 { margin: 18px 0 8px; line-height: 1.3; }
+  .md h1 { font-size: 20px; } .md h2 { font-size: 17px; } .md h3 { font-size: 15px; }
+  .md ul, .md ol { margin: 0 0 10px; padding-left: 22px; }
+  .md li { margin: 2px 0; }
+  .md blockquote { margin: 0 0 10px; padding: 2px 12px; border-left: 3px solid var(--border); color: var(--dim); }
+  .md hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+  .md a { color: var(--accent); text-decoration: none; }
+  .md a:hover { text-decoration: underline; }
+  .md table { border-collapse: collapse; margin: 0 0 12px; font-size: 13px; display: block; overflow-x: auto; }
+  .md th, .md td { border: 1px solid var(--border); padding: 5px 10px; text-align: left; }
+  .md th { background: var(--panel); }
+  code {
+    font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 12.5px;
+    background: var(--panel2); border: 1px solid var(--border-soft); border-radius: 4px; padding: 1px 5px;
+  }
+
+  .codeblock { margin: 10px 0; border: 1px solid var(--border-soft); border-radius: 8px; overflow: hidden; background: var(--code-bg); }
+  .cbhead {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 4px 10px; background: var(--panel); border-bottom: 1px solid var(--border-soft);
+    font-size: 11px; color: var(--dim); text-transform: lowercase;
+  }
+  .cbhead button { background: none; border: none; color: var(--dim); font-size: 11px; cursor: pointer; padding: 2px 4px; }
+  .cbhead button:hover { color: var(--text); }
+  .codeblock pre { margin: 0; padding: 10px 12px; overflow-x: auto; }
+  .codeblock pre code { background: none; border: none; padding: 0; font-size: 12.5px; line-height: 1.5; }
+  .tk-kw { color: var(--tok-kw); } .tk-str { color: var(--tok-str); } .tk-com { color: var(--tok-com); }
+  .tk-num { color: var(--tok-num); } .tk-fn { color: var(--tok-fn); }
+  .tk-add { color: var(--tok-add); } .tk-del { color: var(--tok-del); }
+  .tk-hunk { color: var(--accent); }
+
+  .tool {
+    display: flex; align-items: baseline; gap: 8px; margin: 8px 0;
+    border: 1px solid var(--border-soft); border-radius: 8px; background: var(--panel);
+    font-size: 13px; overflow: hidden;
+  }
+  .tool > summary { display: flex; align-items: baseline; gap: 8px; padding: 7px 12px; cursor: pointer; list-style: none; flex: 1; min-width: 0; }
+  .tool > summary::-webkit-details-marker { display: none; }
+  .tool .ico { width: 14px; text-align: center; color: var(--dim); flex-shrink: 0; }
+  .tool.running .ico { color: var(--accent); }
+  .tool.done .ico { color: var(--ok); }
+  .tool.err .ico { color: var(--err); }
+  .tool.err { border-color: #4a2a22; }
+  .tool .tname { color: var(--text); font-weight: 600; flex-shrink: 0; }
+  .tool .targ { color: var(--dim); font-family: "SF Mono", ui-monospace, monospace; font-size: 12px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .tool .targ.peekable { cursor: pointer; border-bottom: 1px dotted var(--dimmer); }
+  .tool .targ.peekable:hover { color: var(--accent); }
+  .tool .tstat { margin-left: auto; color: var(--dimmer); font-size: 11px; flex-shrink: 0; }
+  .tool > .inner { border-top: 1px solid var(--border-soft); padding: 10px 12px; font-size: 12.5px; }
+  .tool .lbl { color: var(--dimmer); font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; margin: 8px 0 4px; }
+  .tool pre {
+    margin: 0; padding: 8px 10px; background: var(--code-bg); border: 1px solid var(--border-soft);
+    border-radius: 6px; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;
+    font-family: "SF Mono", ui-monospace, monospace; font-size: 12px; max-height: 320px; overflow-y: auto;
+  }
+  .tool .viewbtn { background: none; border: 1px solid var(--border); color: var(--dim); border-radius: 6px;
+    padding: 3px 10px; font-size: 11.5px; cursor: pointer; margin-top: 8px; }
+  .tool .viewbtn:hover { color: var(--text); border-color: var(--dim); }
+
+  details.think { margin: 8px 0; }
+  details.think > summary {
+    cursor: pointer; list-style: none; color: var(--dimmer); font-size: 12.5px;
+    font-style: italic; padding: 2px 0; user-select: none;
+  }
+  details.think > summary::-webkit-details-marker { display: none; }
+  details.think > summary::before { content: "✻ "; color: var(--accent-dim); }
+  details.think[open] > summary { color: var(--dim); }
+  details.think .inner {
+    color: var(--dim); font-size: 12.5px; font-style: italic; white-space: pre-wrap;
+    border-left: 2px solid var(--border); padding-left: 12px; margin: 6px 0 6px 7px;
+  }
+
+  .dialog { margin: 12px 0; border: 1px solid var(--accent-dim); border-radius: 10px; background: var(--panel); padding: 12px 14px; }
+  .dialog .q { font-weight: 600; margin-bottom: 4px; }
+  .dialog .m { color: var(--dim); font-size: 13px; margin-bottom: 10px; white-space: pre-wrap; }
+  .dialog .opts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .dialog .opts button {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 7px; padding: 6px 14px; font-size: 13px; cursor: pointer;
+  }
+  .dialog .opts button:hover { border-color: var(--accent); }
+  .dialog .opts button:first-child { background: var(--accent); border-color: var(--accent); color: #171512; font-weight: 600; }
+  .dialog input, .dialog textarea {
+    width: 100%; background: var(--code-bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 7px; padding: 8px 10px; font: inherit; margin-bottom: 8px;
+  }
+  .dialog.answered { opacity: .45; pointer-events: none; }
+  .dialog .answer { color: var(--dim); font-size: 12.5px; margin-top: 8px; }
+
+  #toasts { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); z-index: 50; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+  .toast {
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 14px; font-size: 13px; box-shadow: 0 4px 18px #0008; animation: rise .18s ease-out;
+  }
+  .toast.warn { border-color: #6b5a2a; color: #e0c36a; }
+  .toast.error { border-color: #5a2f26; color: var(--err); }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+
+  #jump {
+    position: sticky; bottom: 10px; margin: 0 auto; display: none;
+    background: var(--panel2); border: 1px solid var(--border); color: var(--dim);
+    border-radius: 999px; padding: 4px 14px; font-size: 12px; cursor: pointer;
+    width: fit-content; box-shadow: 0 2px 10px #0006; z-index: 5;
+  }
+  #jump.show { display: block; }
+  #jump:hover { color: var(--text); border-color: var(--dim); }
+
+  footer { background: var(--bg); border-top: 1px solid var(--border-soft); padding: 10px 16px 8px; position: relative; }
+  .foot-inner { max-width: 820px; margin: 0 auto; }
+
+  #slashmenu {
+    display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+    width: 820px; max-width: calc(100vw - 40px); max-height: 260px; overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px 12px 0 0;
+    box-shadow: 0 -8px 30px #000a; z-index: 20; margin-bottom: -10px;
+  }
+  #slashmenu.show { display: block; }
+  .smrow { display: flex; align-items: baseline; gap: 10px; padding: 7px 14px; cursor: pointer; font-size: 13px; }
+  .smrow.sel { background: var(--panel2); }
+  .smrow .nm { color: var(--accent); font-family: "SF Mono", ui-monospace, monospace; font-size: 12.5px; flex-shrink: 0; }
+  .smrow .ds { color: var(--dim); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .smrow .src { color: var(--dimmer); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; flex-shrink: 0; }
+  .smempty { padding: 10px 14px; color: var(--dimmer); font-size: 12.5px; }
+
+  .qrow { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; align-items: center; }
+  .qchip {
+    display: flex; align-items: center; gap: 7px; max-width: 340px;
+    background: #242019; border: 1px solid #4a3d2a; border-radius: 8px; padding: 4px 8px;
+    font-size: 12px; color: #c9a96a;
+  }
+  .qchip .qmode { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #8a744a; flex-shrink: 0; }
+  .qchip .qtxt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #qclear { background: none; border: none; color: var(--dimmer); font-size: 11.5px; cursor: pointer; }
+  #qclear:hover { color: var(--err); }
+
+  #retrybar {
+    display: none; margin-bottom: 8px; padding: 8px 12px; gap: 10px; align-items: center;
+    background: #2a1d18; border: 1px solid #5a2f26; border-radius: 10px; font-size: 12.5px; color: var(--err);
+    flex-wrap: wrap;
+  }
+  #retrybar.show { display: flex; }
+  #retrybar .rmsg { flex: 1; min-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #retrybar button {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 7px; padding: 4px 11px; font-size: 12px; cursor: pointer;
+  }
+  #retrybar button:hover { border-color: var(--err); }
+
+  .inputbox {
+    display: flex; gap: 10px; align-items: flex-end;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px;
+  }
+  .inputbox:focus-within { border-color: var(--accent-dim); }
+  .inputbox .prompt { color: var(--accent); font-weight: 700; line-height: 1.55; }
+  textarea {
+    flex: 1; min-width: 0; width: 100%; resize: none; background: none; border: none; outline: none;
+    color: var(--text); font: inherit; line-height: 1.55; max-height: 200px; min-height: 22px;
+  }
+  .inputrow { display: flex; gap: 8px; align-items: flex-end; flex: 1; min-width: 0; }
+  .kbd { font-family: "SF Mono", ui-monospace, monospace; font-size: 10.5px; color: var(--dimmer); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+  .hintrow {
+    display: flex; gap: 14px; align-items: center; margin-top: 7px;
+    font-size: 11.5px; color: var(--dimmer); flex-wrap: wrap;
+  }
+  .hintrow .right { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+  #usage { font-variant-numeric: tabular-nums; }
+  #extstatus { color: var(--dim); }
+
+  #ctx {
+    display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px 2px 8px;
+    font-size: 11px; color: var(--dim); background: var(--panel);
+  }
+  #ctx:hover { border-color: var(--dim); color: var(--text); }
+  #ctx .bar { width: 46px; height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  #ctx .fill { height: 100%; width: 0%; background: var(--ok); transition: width .4s; }
+  #ctx .fill.warn { background: #e0c36a; }
+  #ctx .fill.hot { background: var(--err); }
+  #ctxpop {
+    display: none; position: absolute; right: 16px; bottom: 44px; width: 320px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 -8px 30px #000a; padding: 14px; z-index: 30; font-size: 12.5px;
+  }
+  #ctxpop.show { display: block; }
+  #ctxpop .row { display: flex; justify-content: space-between; gap: 10px; margin: 3px 0; color: var(--dim); }
+  #ctxpop .row b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; text-align: right; }
+  #ctxpop .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  #ctxpop .actions button {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 7px; padding: 5px 11px; font-size: 12px; cursor: pointer;
+  }
+  #ctxpop .actions button:hover { border-color: var(--accent-dim); }
+
+  #stopbtn {
+    display: none; background: var(--panel2); border: 1px solid var(--border); color: var(--dim);
+    border-radius: 8px; padding: 5px 12px; font-size: 12.5px; cursor: pointer;
+  }
+  #stopbtn.show { display: block; }
+  #stopbtn:hover { color: var(--err); border-color: var(--err); }
+
+  .attachrow { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .chip {
+    display: flex; align-items: center; gap: 7px; max-width: 260px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px;
+    font-size: 12px; color: var(--dim);
+  }
+  .chip img { width: 26px; height: 26px; object-fit: cover; border-radius: 4px; }
+  .chip .fico { font-size: 14px; }
+  .chip .cname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip .x { cursor: pointer; color: var(--dimmer); padding: 0 2px; }
+  .chip .x:hover { color: var(--err); }
+  .attachbtn { background: none; border: none; color: var(--dim); font-size: 15px; cursor: pointer; padding: 2px 4px; }
+  .attachbtn:hover { color: var(--accent); }
+  .uimgs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; width: 100%; }
+  .uimgs img { max-width: 220px; max-height: 160px; border-radius: 8px; border: 1px solid var(--border); }
+  #dropzone {
+    display: none; position: fixed; inset: 0; z-index: 200; background: #000a;
+    align-items: center; justify-content: center; flex-direction: column; gap: 10px;
+    border: 2px dashed var(--accent); margin: 12px; border-radius: 16px;
+    color: var(--text); font-size: 16px;
+  }
+  #dropzone.show { display: flex; }
+  #dropzone .big { font-size: 34px; color: var(--accent); }
+
+  #filedrawer {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(540px, 92vw); z-index: 90;
+    background: var(--panel); border-left: 1px solid var(--border);
+    transform: translateX(102%); transition: transform .22s ease;
+    display: flex; flex-direction: column; box-shadow: -12px 0 40px #0009;
+  }
+  #filedrawer.show { transform: translateX(0); }
+  #filedrawer .fhead {
+    display: flex; align-items: center; gap: 10px; padding: 11px 14px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  #filedrawer .fhead .fname { font-weight: 600; font-size: 13.5px; font-family: "SF Mono", ui-monospace, monospace; flex-shrink: 0; }
+  #filedrawer .fhead .fpath { color: var(--dimmer); font-size: 11px; font-family: "SF Mono", ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #filedrawer .fhead .x { cursor: pointer; color: var(--dimmer); font-size: 15px; padding: 2px 4px; flex-shrink: 0; }
+  #filedrawer .fhead .x:hover { color: var(--err); }
+  #filedrawer .fbody { flex: 1; overflow: auto; padding: 12px 14px; }
+  #filedrawer .fbody pre {
+    margin: 0; font-family: "SF Mono", ui-monospace, monospace; font-size: 12px; line-height: 1.55;
+    white-space: pre;
+  }
+  #filedrawer .fnote { color: var(--dim); font-size: 13px; }
+
+  #banner {
+    display: none; max-width: 820px; margin: 10px auto 0; padding: 10px 14px; background: #2a1d18;
+    border: 1px solid var(--err); border-radius: 10px; font-size: 13px; color: var(--err);
+    align-items: center; gap: 12px;
+  }
+  #banner button { background: var(--panel2); border: 1px solid var(--err); color: var(--text); border-radius: 7px; padding: 5px 12px; cursor: pointer; margin-left: auto; }
+</style>
+</head>
+<body>
+<header>
+  <span class="logo">π</span>
+  <button class="projpill" id="projBtn" title="New session in another folder">…</button>
+  <span class="spacer"></span>
+  <select id="model" title="Model"></select>
+  <select id="thinking" title="Thinking level"></select>
+</header>
+
+<div id="tabs"></div>
+
+<div id="chatwrap">
+  <div id="activity" class="hidden"><span class="spin" id="spin"></span><span id="activityText"></span></div>
+  <div id="chat"></div>
+  <button id="jump">↓ Latest</button>
+  <div id="banner"><span id="bannerText"></span><button id="bannerBtn">Restart pi</button></div>
+</div>
+
+<footer>
+  <div id="slashmenu"></div>
+  <div id="ctxpop"></div>
+  <div class="foot-inner">
+    <div id="retrybar"></div>
+    <div class="inputbox">
+      <div class="attachrow" id="attachrow" style="display:none"></div>
+      <div class="qrow" id="qrow" style="display:none"></div>
+      <span class="prompt">❯</span>
+      <div class="inputrow">
+        <button class="attachbtn" id="attachBtn" title="Attach files (or paste / drag-drop images & files)">📎</button>
+        <input type="file" id="filePick" multiple style="display:none" />
+        <textarea id="input" rows="1" placeholder="Message pi…  ( / commands · ! shell · paste or drop images & files)"></textarea>
+        <button id="stopbtn" title="Interrupt (esc)">■ Interrupt</button>
+      </div>
+    </div>
+    <div class="hintrow">
+      <span><span class="kbd">/</span> commands</span>
+      <span><span class="kbd">!</span> shell</span>
+      <span><span class="kbd">esc</span> interrupt</span>
+      <span><span class="kbd">📎</span> attach</span>
+      <span class="right">
+        <button class="btn" id="qmode" title="How messages sent mid-run are queued: steer = inject before next LLM call · queue = after the agent stops">➜ steer</button>
+        <span id="extstatus"></span>
+        <span id="usage"></span>
+        <span id="ctx" title="Context window usage — click for details"><span class="bar"><span class="fill" id="ctxfill"></span></span><span id="ctxtext">ctx —</span></span>
+        <span id="sessionInfo"></span>
+      </span>
+    </div>
+  </div>
+</footer>
+<div id="toasts"></div>
+<div id="dropzone"><div class="big">⇣</div><div>Drop files to attach</div></div>
+
+<div id="filedrawer">
+  <div class="fhead">
+    <span>📄</span>
+    <span class="fname" id="fdName"></span>
+    <span class="fpath spacer" id="fdPath"></span>
+    <span class="x" id="fdClose">✕</span>
+  </div>
+  <div class="fbody" id="fdBody"></div>
+</div>
+
+<div id="overlay">
+  <div id="modal">
+    <div class="mhead"><b>New session in…</b><span class="spacer"></span>
+      <button class="btn" id="mCancel">Cancel</button></div>
+    <div class="pathrow">
+      <input id="mPath" type="text" spellcheck="false" />
+      <button class="btn solid" id="mGo">Go</button>
+      <button class="btn" id="mHome" title="Home">~</button>
+    </div>
+    <div class="list" id="mList"></div>
+    <div class="mfoot">
+      <button class="btn" id="mUp">↑ Parent</button>
+      <button class="btn solid" id="mOpen">Open session here</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const chat = $("chat");
+const input = $("input");
+const esc = (s) => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const baseName = (p) => (p || "").split("/").filter(Boolean).pop() || "/";
+
+// ================= syntax highlighting =================
+const KW = {
+  js: "const|let|var|function|return|if|else|for|while|do|class|extends|new|import|export|from|default|try|catch|finally|throw|async|await|typeof|instanceof|in|of|switch|case|break|continue|yield|delete|void|static|get|set|null|undefined|true|false|this|super",
+  py: "def|return|if|elif|else|for|while|class|import|from|as|try|except|finally|with|lambda|pass|raise|global|nonlocal|assert|yield|async|await|None|True|False|and|or|not|in|is|self",
+  sh: "if|then|else|elif|fi|for|in|do|done|while|case|esac|function|return|exit|local|export|echo|set|source|cd|ls|grep|cat|mkdir|rm|cp|mv|curl|node|npm|git|sudo",
+  go: "func|return|if|else|for|range|switch|case|break|continue|type|struct|interface|map|package|import|var|const|go|chan|defer|select|nil|true|false|make|new",
+  rs: "fn|return|if|else|for|while|loop|match|struct|enum|impl|trait|use|mod|pub|let|mut|ref|move|async|await|unsafe|where|self|Self|true|false|Some|None|Ok|Err",
+  sql: "select|from|where|insert|into|values|update|set|delete|create|table|drop|alter|join|left|right|inner|outer|on|as|and|or|not|null|order|by|group|limit|offset|having|distinct|union|index|primary|key",
+  css: "color|background|margin|padding|border|display|position|width|height|font|flex|grid|align|justify|top|left|right|bottom|overflow|opacity|transition|transform|content",
+  yaml: "true|false|null|yes|no",
+};
+const LANG = {
+  js:  { kw: KW.js,  com: /\/\/[^\n]*|\/\*[\s\S]*?\*\//, str: /`(?:\\[\s\S]|\$\{[^}]*\}|[^`\\])*`|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'/ },
+  ts:  { kw: KW.js,  com: /\/\/[^\n]*|\/\*[\s\S]*?\*\//, str: /`(?:\\[\s\S]|\$\{[^}]*\}|[^`\\])*`|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'/ },
+  py:  { kw: KW.py,  com: /#[^\n]*/, str: /"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'/ },
+  sh:  { kw: KW.sh,  com: /#[^\n]*/, str: /"(?:\\.|[^"\\])*"|'[^'\n]*'/ },
+  go:  { kw: KW.go,  com: /\/\/[^\n]*|\/\*[\s\S]*?\*\//, str: /`[^`]*`|"(?:\\.|[^"\\\n])*"|'[^'\n]*'/ },
+  rs:  { kw: KW.rs,  com: /\/\/[^\n]*|\/\*[\s\S]*?\*\//, str: /"(?:\\.|[^"\\\n])*"|'\\?[a-zA-Z]?'?/ },
+  sql: { kw: KW.sql, com: /--[^\n]*/, str: /'([^'\n]|'')*'/ },
+  css: { kw: KW.css, com: /\/\*[\s\S]*?\*\//, str: /"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'/ },
+  yaml:{ kw: KW.yaml, com: /#[^\n]*/, str: /"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'/ },
+  json:{ kw: "", com: /$^/, str: /"(?:\\.|[^"\\])*"/ },
+};
+const ALIAS = { javascript:"js", typescript:"ts", python:"py", bash:"sh", shell:"sh", zsh:"sh",
+  rust:"rs", golang:"go", yml:"yaml", htm:"html", xml:"html", plain:"txt", text:"txt", diff:"diff", patch:"diff" };
+const EXT_LANG = { js:"js", mjs:"js", cjs:"js", jsx:"js", ts:"ts", tsx:"ts", py:"py", sh:"sh", bash:"sh", zsh:"sh",
+  go:"go", rs:"rs", sql:"sql", css:"css", html:"txt", htm:"txt", xml:"txt", svg:"txt", json:"json", yaml:"yaml", yml:"yaml",
+  toml:"txt", ini:"txt", env:"txt", md:"txt", txt:"txt", log:"txt", c:"js", h:"js", cpp:"js", hpp:"js", java:"js", rb:"py", csv:"txt", lock:"txt" };
+
+function highlight(code, langRaw) {
+  const lang = ALIAS[langRaw] || langRaw || "txt";
+  if (lang === "diff") return highlightDiff(code);
+  const L = LANG[lang];
+  if (!L) return esc(code);
+  const parts = [];
+  if (L.com.source !== "$^") parts.push([L.com, "tk-com"]);
+  parts.push([L.str, "tk-str"]);
+  parts.push([/(?:\b0x[\da-fA-F]+\b|\b\d+(?:\.\d+)?(?:e[+-]?\d+)?\b)/i, "tk-num"]);
+  if (L.kw) parts.push([new RegExp("\\b(?:" + L.kw + ")\\b"), "tk-kw"]);
+  parts.push([/\b[a-zA-Z_][\w]*(?=\s*\()/, "tk-fn"]);
+  const master = new RegExp(parts.map((p) => "(" + p[0].source + ")").join("|"), "gm");
+  let out = "", last = 0, m;
+  while ((m = master.exec(code))) {
+    if (m.index > last) out += esc(code.slice(last, m.index));
+    let cls = null;
+    for (let i = 0; i < parts.length; i++) if (m[i + 1] !== undefined) { cls = parts[i][1]; break; }
+    out += cls ? `<span class="${cls}">${esc(m[0])}</span>` : esc(m[0]);
+    last = m.index + m[0].length;
+    if (m[0].length === 0) master.lastIndex++;
+  }
+  return out + esc(code.slice(last));
+}
+function highlightDiff(code) {
+  return code.split("\n").map((line) => {
+    if (line.startsWith("+")) return `<span class="tk-add">${esc(line)}</span>`;
+    if (line.startsWith("-")) return `<span class="tk-del">${esc(line)}</span>`;
+    if (line.startsWith("@@")) return `<span class="tk-hunk">${esc(line)}</span>`;
+    return esc(line);
+  }).join("\n");
+}
+const langOfPath = (p) => EXT_LANG[(p.split(".").pop() || "").toLowerCase()] || "txt";
+
+// ================= code blocks =================
+const codeStore = new Map(); let codeId = 0;
+function codeBlockHtml(raw, lang) {
+  const id = ++codeId;
+  codeStore.set(id, raw);
+  return `<div class="codeblock"><div class="cbhead"><span>${esc(lang || "text")}</span>` +
+    `<button data-copy="${id}">copy</button></div><pre><code>${highlight(raw, lang)}</code></pre></div>`;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-copy]");
+  if (!b) return;
+  const raw = codeStore.get(Number(b.dataset.copy));
+  if (raw == null) return;
+  navigator.clipboard.writeText(raw).then(() => {
+    b.textContent = "copied ✓";
+    setTimeout(() => (b.textContent = "copy"), 1500);
+  });
+});
+
+// ================= markdown =================
+function md(text) {
+  const blocks = [];
+  text = String(text).replace(/```([^\n`]*)\n([\s\S]*?)(?:```|$)/g, (_, lang, code) => {
+    blocks.push(codeBlockHtml(code.replace(/\n$/, ""), lang.trim()));
+    return `\u0000CB${blocks.length - 1}\u0000`;
+  });
+  let h = esc(text);
+  h = h.replace(/^#### (.*)$/gm, "<h4>$1</h4>").replace(/^### (.*)$/gm, "<h3>$1</h3>")
+       .replace(/^## (.*)$/gm, "<h2>$1</h2>").replace(/^# (.*)$/gm, "<h1>$1</h1>");
+  h = h.replace(/^---+$/gm, "<hr>");
+  h = h.replace(/^&gt; (.*)$/gm, "<blockquote>$1</blockquote>");
+  h = h.replace(/(^|\n)((?:\|[^\n]+\|\n?)+)/g, (_, pre, tbl) => {
+    const rows = tbl.trim().split("\n").filter(r => r.trim());
+    if (rows.length < 2) return pre + tbl;
+    const cells = (r) => r.replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+    let out = pre + "<table>";
+    rows.forEach((r, i) => {
+      if (i === 1 && /^\|?[\s:|-]+\|?$/.test(r)) return;
+      const tag = i === 0 ? "th" : "td";
+      out += "<tr>" + cells(r).map(c => `<${tag}>${c}</${tag}>`).join("") + "</tr>";
+    });
+    return out + "</table>";
+  });
+  h = h.replace(/(^|\n)((?:[ \t]*[-*] .*(?:\n|$))+)/g, (_, pre, list) =>
+    pre + "<ul>" + list.trim().split("\n").map(l => "<li>" + l.replace(/^[ \t]*[-*] /, "") + "</li>").join("") + "</ul>");
+  h = h.replace(/(^|\n)((?:[ \t]*\d+\. .*(?:\n|$))+)/g, (_, pre, list) =>
+    pre + "<ol>" + list.trim().split("\n").map(l => "<li>" + l.replace(/^[ \t]*\d+\. /, "") + "</li>").join("") + "</ol>");
+  h = h.replace(/`([^`\n]+)`/g, "<code>$1</code>")
+       .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+       .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<i>$2</i>")
+       .replace(/\[([^\]\n]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  const parts = h.split(/\n{2,}/).map(p => {
+    p = p.trim();
+    if (!p) return "";
+    if (/^<(h\d|ul|ol|table|blockquote|hr|pre|div)/.test(p)) return p;
+    return "<p>" + p.replace(/\n/g, "<br>") + "</p>";
+  });
+  h = parts.join("\n");
+  h = h.replace(/\u0000CB(\d+)\u0000/g, (_, i) => blocks[Number(i)]);
+  return h;
+}
+
+// ================= layout helpers =================
+function toast(msg, kind) {
+  const t = document.createElement("div");
+  t.className = "toast " + (kind || "");
+  t.textContent = msg;
+  $("toasts").appendChild(t);
+  setTimeout(() => { t.style.opacity = "0"; t.style.transition = "opacity .3s"; setTimeout(() => t.remove(), 350); }, 3800);
+}
+function scrollToBottom(force) {
+  const w = $("chatwrap");
+  const nearBottom = w.scrollHeight - w.scrollTop - w.clientHeight < 60;
+  if (force || nearBottom) w.scrollTop = w.scrollHeight;
+}
+$("chatwrap").addEventListener("scroll", () => {
+  const w = $("chatwrap");
+  $("jump").classList.toggle("show", w.scrollHeight - w.scrollTop - w.clientHeight > 200);
+});
+$("jump").onclick = () => ($("chatwrap").scrollTop = $("chatwrap").scrollHeight);
+
+const SPINNER = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];
+let spinIdx = 0, spinTimer = null;
+function setActivity(text, animate = true) {
+  const el = $("activity"), at = $("activityText");
+  if (spinTimer) { clearInterval(spinTimer); spinTimer = null; $("spin").textContent = ""; }
+  if (!text) { el.classList.add("hidden"); return; }
+  el.classList.remove("hidden");
+  at.textContent = text;
+  if (animate) {
+    spinTimer = setInterval(() => {
+      spinIdx = (spinIdx + 1) % SPINNER.length;
+      $("spin").textContent = SPINNER[spinIdx];
+    }, 80);
+  }
+}
+
+// ================= sessions =================
+const sessions = new Map();
+let activeSid = null, renderedSid = null;
+let models = [];
+let queueMode = "steer";
+const active = () => sessions.get(activeSid);
+
+function makeSession(info) {
+  const sess = {
+    sid: info.sid, cwd: info.cwd, name: info.name || null,
+    es: null, isStreaming: false, piAlive: info.running,
+    queue: [], lastUser: null, cmdCache: null, stats: null,
+  };
+  sessions.set(info.sid, sess);
+  attachEvents(sess);
+  return sess;
+}
+function attachEvents(sess) {
+  if (sess.es) sess.es.close();
+  sess.es = new EventSource("/api/events?sid=" + encodeURIComponent(sess.sid));
+  sess.es.onmessage = (e) => {
+    let rec; try { rec = JSON.parse(e.data); } catch { return; }
+    if (sess.sid === activeSid) onEvent(rec);
+    else onBackground(sess, rec);
+  };
+}
+function onBackground(sess, rec) {
+  if (rec.type === "agent_start") { sess.isStreaming = true; renderTabs(); }
+  else if (rec.type === "agent_settled") { sess.isStreaming = false; renderTabs(); }
+  else if (rec.type === "pi_exited") { sess.piAlive = false; renderTabs(); }
+}
+async function send(command, timeoutMs = 60000, sid) {
+  const s = sid || activeSid;
+  const res = await fetch("/api/command", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sid: s, command, timeoutMs }),
+  });
+  let body = null;
+  try { body = await res.json(); } catch {}
+  return { ok: res.ok, ...(body || {}) };
+}
+
+// ================= tabs =================
+function renderTabs() {
+  const el = $("tabs");
+  el.innerHTML = "";
+  for (const s of sessions.values()) {
+    const t = document.createElement("div");
+    t.className = "tab" + (s.sid === activeSid ? " active" : "") +
+      (s.isStreaming ? " working" : (!s.piAlive ? " dead" : ""));
+    const dot = document.createElement("span"); dot.className = "dot";
+    const nm = document.createElement("span"); nm.className = "tname";
+    nm.textContent = s.name || baseName(s.cwd);
+    nm.title = (s.name ? s.name + " · " : "") + s.cwd + "  (double-click to rename)";
+    const tx = document.createElement("span"); tx.className = "tx"; tx.textContent = "✕";
+    tx.title = "Close session";
+    t.append(dot, nm, tx);
+    t.onclick = () => switchTo(s.sid);
+    nm.ondblclick = (e) => { e.stopPropagation(); renameSession(s); };
+    tx.onclick = (e) => { e.stopPropagation(); closeTab(s.sid); };
+    el.appendChild(t);
+  }
+  const plus = document.createElement("button");
+  plus.id = "tabnew"; plus.textContent = "＋"; plus.title = "New session (choose a folder)";
+  plus.onclick = () => openPicker();
+  el.appendChild(plus);
+  updateTitle();
+}
+function renameSession(s) {
+  const el = $("tabs");
+  const idx = [...sessions.keys()].indexOf(s.sid);
+  const tabEl = [...el.children].filter(c => c.classList.contains("tab"))[idx];
+  const nm = tabEl?.querySelector(".tname");
+  if (!nm) return;
+  const inp = document.createElement("input");
+  inp.className = "rename";
+  inp.value = s.name || "";
+  inp.placeholder = baseName(s.cwd);
+  nm.replaceWith(inp);
+  inp.focus(); inp.select();
+  let done = false;
+  const commit = async () => {
+    if (done) return; done = true;
+    const name = inp.value.trim();
+    if (!name) {
+      if (s.name) toast("pi can't clear a name — keeping \u201c" + s.name + "\u201d", "warn");
+      renderTabs(); updatePill();
+      return;
+    }
+    const r = await send({ type: "set_session_name", name }, 15000, s.sid);
+    if (r.success) s.name = name;
+    else toast("rename failed: " + (r.error || ""), "error");
+    renderTabs(); updatePill();
+  };
+  inp.onkeydown = (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") { e.preventDefault(); commit(); }
+    else if (e.key === "Escape") { done = true; renderTabs(); }
+  };
+  inp.onblur = () => commit();
+  inp.onclick = (e) => e.stopPropagation();
+  inp.ondblclick = (e) => e.stopPropagation();
+}
+async function closeTab(sid) {
+  const s = sessions.get(sid);
+  if (s?.isStreaming && !confirm("This session is working — close anyway?")) return;
+  await fetch("/api/close", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sid }) });
+  if (s) { s.es?.close(); sessions.delete(sid); }
+  if (activeSid === sid) {
+    const rest = [...sessions.values()];
+    if (rest.length) switchTo(rest[0].sid);
+    else {
+      const info = await fetch("/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).then(r => r.json());
+      if (info.sid) { makeSession(info); switchTo(info.sid); }
+    }
+  }
+  renderTabs();
+}
+function updatePill() {
+  const s = active();
+  const b = $("projBtn");
+  b.innerHTML = `▸ ${esc(s ? (s.name ? `${s.name} · ` : "") + baseName(s.cwd) : "…")} <span class="arrow">＋</span>`;
+  b.title = s ? (s.cwd + " — click for a new session") : "";
+}
+function updateTitle() {
+  const s = active();
+  document.title = s ? ((s.isStreaming ? "⏳ " : "· ") + (s.name || baseName(s.cwd)) + " — pi") : "pi";
+}
+
+// ================= switch session =================
+async function switchTo(sid) {
+  if (sid === activeSid && renderedSid === sid) return;
+  activeSid = sid;
+  const s = active();
+  stream = null;
+  hideRetryBar(); hideCtxPop(); closeSlash();
+  renderTabs(); updatePill();
+  if (renderedSid !== sid) {
+    setActivity("Loading…", false);
+    const msgs = await send({ type: "get_messages" }, 20000, sid);
+    if (sid !== activeSid) return; // switched away mid-load
+    renderAll(msgs.data?.messages || []);
+    renderedSid = sid;
+    setActivity(s.isStreaming ? "Working…" : "Ready", !!s.isStreaming);
+  }
+  refreshState();
+  refreshCtx();
+  input.focus();
+}
+
+// ================= message rendering =================
+function contentText(content) {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.filter(b => b.type === "text").map(b => b.text).join("\n");
+  return "";
+}
+function resultText(result) {
+  if (result == null) return "";
+  if (typeof result === "string") return result;
+  if (Array.isArray(result?.content))
+    return result.content.map(c => (c.type === "text" ? c.text : JSON.stringify(c, null, 2))).join("\n");
+  return JSON.stringify(result, null, 2);
+}
+function toolArgSummary(name, a) {
+  a = a || {};
+  switch (name) {
+    case "bash": return a.command ? String(a.command).slice(0, 200) : "";
+    case "read": case "write": {
+      let s = a.path ? String(a.path) : "";
+      if (name === "write" && typeof a.content === "string") s += `  (${a.content.split("\n").length} lines)`;
+      return s;
+    }
+    case "edit": return a.path || "";
+    case "grep": case "search": case "find": return [a.pattern, a.path].filter(Boolean).join("  ");
+    case "glob": return a.pattern || "";
+    default: {
+      const s = JSON.stringify(a);
+      return s === "{}" ? "" : s.slice(0, 160);
+    }
+  }
+}
+function toolPath(a) { a = a || {}; return a.path || a.file_path || a.filename || null; }
+const toolRows = new Map();
+
+function makeToolRow(tcid, name, args, status) {
+  const d = document.createElement("details");
+  d.className = "tool " + (status || "running");
+  d.dataset.tcid = tcid || "";
+  const sum = document.createElement("summary");
+  const ico = document.createElement("span");
+  ico.className = "ico";
+  ico.textContent = status === "done" ? "✓" : status === "err" ? "✗" : "⋯";
+  const tn = document.createElement("span"); tn.className = "tname"; tn.textContent = name;
+  const ta = document.createElement("span"); ta.className = "targ";
+  ta.textContent = toolArgSummary(name, args);
+  const p = toolPath(args);
+  if (p) {
+    ta.classList.add("peekable");
+    ta.title = "Click to preview " + p;
+    ta.onclick = (e) => { e.stopPropagation(); peekFile(String(p)); };
+  }
+  sum.append(ico, tn, ta);
+  d.appendChild(sum);
+  const inner = document.createElement("div"); inner.className = "inner";
+  if (args && Object.keys(args).length)
+    inner.innerHTML = `<div class="lbl">input</div><pre>${esc(JSON.stringify(args, null, 2))}</pre>`;
+  if (p) {
+    inner.insertAdjacentHTML("beforeend", `<button class="viewbtn">preview file ↗</button>`);
+    inner.querySelector(".viewbtn").onclick = () => peekFile(String(p));
+  }
+  d.appendChild(inner);
+  if (tcid) toolRows.set(tcid, d);
+  return d;
+}
+function attachToolResult(tcid, result, isError) {
+  const d = toolRows.get(tcid) || (tcid ? chat.querySelector(`.tool[data-tcid="${CSS.escape(tcid)}"]`) : null);
+  if (!d) return;
+  d.classList.remove("running");
+  d.classList.add(isError ? "err" : "done");
+  d.querySelector(".ico").textContent = isError ? "✗" : "✓";
+  const inner = d.querySelector(".inner");
+  const txt = resultText(result);
+  const short = txt.length > 3000 ? txt.slice(0, 3000) + `\n… (${txt.length - 3000} more chars)` : txt;
+  inner.insertAdjacentHTML("beforeend",
+    `<div class="lbl">${isError ? "error" : "output"}</div><pre>${esc(short)}</pre>`);
+}
+
+function userMsg(content, bashCmd) {
+  killEmptyState();
+  const d = document.createElement("div");
+  d.className = "msg user" + (bashCmd ? " bash" : "");
+  const text = bashCmd ? "!" + bashCmd : contentText(content);
+  const imgs = (!bashCmd && Array.isArray(content)) ? content.filter(b => b.type === "image") : [];
+  if (text) d.innerHTML = `<span class="g">❯</span><span class="txt">${esc(text)}</span>`;
+  else d.innerHTML = `<span class="g">❯</span>`;
+  if (imgs.length) {
+    const row = document.createElement("div"); row.className = "uimgs";
+    for (const im of imgs) {
+      const i = document.createElement("img");
+      i.src = `data:${im.mimeType || "image/png"};base64,${im.data}`;
+      i.title = im.name || "";
+      row.appendChild(i);
+    }
+    d.appendChild(row);
+  }
+  chat.appendChild(d);
+  return d;
+}
+function bashResBlock() {
+  killEmptyState();
+  const r = document.createElement("div");
+  r.className = "bashres";
+  r.innerHTML = `<pre></pre><div class="exit">running…</div>`;
+  chat.appendChild(r);
+  scrollToBottom();
+  return r;
+}
+
+function makeThinkEl(open) {
+  const d = document.createElement("details");
+  d.className = "think";
+  d.open = !!open;
+  const s = document.createElement("summary");
+  s.textContent = open ? "Thinking…" : "thought";
+  d.appendChild(s);
+  const inner = document.createElement("div"); inner.className = "inner";
+  d.appendChild(inner);
+  return d;
+}
+function assistantContainer() {
+  killEmptyState();
+  const d = document.createElement("div"); d.className = "msg assistant";
+  const body = document.createElement("div"); body.className = "md";
+  d.appendChild(body);
+  chat.appendChild(d);
+  return { el: d, body };
+}
+function renderAssistantFinal(body, content) {
+  body.innerHTML = "";
+  const textBlocks = (content || []).filter(b => b.type === "text");
+  let ti = 0;
+  for (const b of (content || [])) {
+    if (b.type === "thinking") {
+      const t = makeThinkEl(false);
+      t.querySelector("summary").textContent = "thought";
+      t.querySelector(".inner").textContent = b.redacted ? "(redacted)" : (b.thinking || "");
+      body.appendChild(t);
+    } else if (b.type === "text") {
+      const p = document.createElement("div");
+      p.innerHTML = md(textBlocks[ti++]?.text ?? "");
+      body.appendChild(p);
+    } else if (b.type === "toolCall") {
+      let row = toolRows.get(b.id) || null;
+      if (!row) row = makeToolRow(b.id, b.name, b.arguments, "done");
+      body.appendChild(row);
+    }
+  }
+}
+function renderMessage(m) {
+  const role = m.role;
+  if (role === "user") { userMsg(m.content); return; }
+  if (role === "toolResult") { attachToolResult(m.toolCallId, m.result, m.isError); return; }
+  if (role === "assistant") {
+    const { body } = assistantContainer();
+    renderAssistantFinal(body, m.content);
+    if (m.usage) trackUsage(m.usage);
+    return;
+  }
+  const d = document.createElement("div"); d.className = "msg sys";
+  const t = contentText(m.content);
+  d.textContent = t || ("· " + (role || "system"));
+  chat.appendChild(d);
+}
+function renderAll(messages) {
+  chat.innerHTML = "";
+  toolRows.clear();
+  for (const m of messages) renderMessage(m);
+  if (!messages.length) showEmptyState();
+  scrollToBottom(true);
+}
+function showEmptyState() {
+  const s = active();
+  const name = s ? ((s.name ? s.name + " · " : "") + baseName(s.cwd)) : "project";
+  const d = document.createElement("div");
+  d.className = "empty"; d.id = "emptyState";
+  d.innerHTML = `<div class="empty-logo">π</div>
+    <div class="empty-title">pi · ${esc(name)}</div>
+    <div class="empty-sub">I can read, edit, search and run commands in this folder. Type <code>/</code> for commands, <code>!</code> for raw shell.</div>
+    <div class="empty-chips">
+      <button data-p="Give me a tour of this project — structure, main files, how to run it.">📁 Tour this project</button>
+      <button data-p="Show me the git status and the most recent changes.">🌿 Git status &amp; recent changes</button>
+      <button data-p="Find TODOs, FIXMEs and obvious code smells in this repo.">🔍 Find TODOs &amp; code smells</button>
+    </div>`;
+  d.querySelectorAll("button").forEach(b => b.onclick = () => { input.value = b.dataset.p; autosize(); input.focus(); });
+  chat.appendChild(d);
+}
+function killEmptyState() { $("emptyState")?.remove?.(); }
+
+// ================= usage + context gauge =================
+function trackUsage(u) {
+  if (!u) return;
+  const inT = (u.input || 0) + (u.cacheRead || 0);
+  const cost = u.cost?.total != null ? `$${u.cost.total < 0.01 ? u.cost.total.toFixed(4) : u.cost.total.toFixed(3)}` : "";
+  $("usage").textContent = `↑${inT.toLocaleString()} ↓${(u.output || 0).toLocaleString()} tok ${cost ? "· " + cost : ""}`;
+}
+async function refreshCtx() {
+  const s = active();
+  if (!s) return;
+  const r = await send({ type: "get_session_stats" }, 20000, s.sid);
+  if (!r.success || r.data?.contextUsage == null) return;
+  s.stats = r.data;
+  const cu = r.data.contextUsage;
+  const pct = Math.min(100, cu.percent || 0);
+  const fill = $("ctxfill");
+  fill.style.width = pct + "%";
+  fill.className = "fill" + (pct > 85 ? " hot" : pct > 60 ? " warn" : "");
+  $("ctxtext").textContent = `ctx ${pct}%`;
+}
+function hideCtxPop() { $("ctxpop").classList.remove("show"); }
+$("ctx").onclick = (e) => {
+  e.stopPropagation();
+  const pop = $("ctxpop");
+  if (pop.classList.contains("show")) { hideCtxPop(); return; }
+  const st = active()?.stats;
+  const fmt = (n) => (n || 0).toLocaleString();
+  const cu = st?.contextUsage || {};
+  pop.innerHTML = `
+    <div class="row"><span>context window</span><b>${fmt(cu.tokens)} / ${fmt(cu.contextWindow)} tok (${cu.percent ?? "—"}%)</b></div>
+    <div class="row"><span>session tokens (in / out / cache)</span><b>${fmt(st?.tokens?.input)} / ${fmt(st?.tokens?.output)} / ${fmt(st?.tokens?.cacheRead)}</b></div>
+    <div class="row"><span>session cost</span><b>$${(st?.cost ?? 0).toFixed(3)}</b></div>
+    <div class="row"><span>messages / tool calls</span><b>${st?.totalMessages ?? "—"} / ${st?.toolCalls ?? "—"}</b></div>
+    <div class="row"><span>auto-compaction</span><b id="autoCptLabel">${autoCpt ? "on" : "off"}</b></div>
+    <div class="actions">
+      <button id="doCompact">⟲ Compact now</button>
+      <button id="toggleCpt">auto-compaction: ${autoCpt ? "on" : "off"}</button>
+    </div>`;
+  pop.classList.add("show");
+  pop.querySelector("#doCompact").onclick = () => doCompact();
+  pop.querySelector("#toggleCpt").onclick = () => toggleAutoCpt();
+};
+let autoCpt = true;
+async function doCompact() {
+  const s = active(); if (!s) return;
+  hideCtxPop();
+  setActivity("Compacting context…", true);
+  const r = await send({ type: "compact" }, 180000, s.sid);
+  setActivity(s.isStreaming ? "Working…" : "Ready", s.isStreaming);
+  if (r.success) {
+    const d = r.data || {};
+    toast(`compacted: ${d.tokensBefore?.toLocaleString()} → ~${(d.estimatedTokensAfter ?? d.tokensAfter ?? 0).toLocaleString()} tokens`);
+  } else toast("compact failed: " + (r.error || "unknown"), "error");
+  refreshCtx();
+}
+async function toggleAutoCpt() {
+  autoCpt = !autoCpt;
+  const r = await send({ type: "set_auto_compaction", enabled: autoCpt }, 15000);
+  if (r.success) { toast("auto-compaction " + (autoCpt ? "on" : "off")); hideCtxPop(); }
+  else toast("failed: " + (r.error || ""), "error");
+}
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("#ctxpop") && !e.target.closest("#ctx")) hideCtxPop();
+});
+
+// ================= streaming =================
+let stream = null;
+function ensureStream() {
+  if (stream) return stream;
+  const { body } = assistantContainer();
+  stream = { body, thinkEl: null, thinkBuf: "", textSeg: null, textBuf: "", renderT: null, placeholder: true, hasThinking: false };
+  return stream;
+}
+function scheduleStreamRender() {
+  if (stream.renderT) return;
+  stream.renderT = setTimeout(() => {
+    stream.renderT = null;
+    if (!stream) return;
+    if (stream.thinkEl) stream.thinkEl.querySelector(".inner").textContent = stream.thinkBuf;
+    let html = "";
+    if (stream.textSeg) html += `<div>${md(stream.textSeg.textContent)}</div>`;
+    if (stream.textBuf) html += `<div>${md(stream.textBuf)}</div>`;
+    if (stream.placeholder && !html) {
+      if (!stream.body.hasChildNodes() || stream.body.lastChild?.className === "md-placeholder") {
+        stream.body.innerHTML = `<span class="md-placeholder" style="color:var(--dimmer);font-style:italic">…</span>`;
+      }
+      return;
+    }
+    stream.placeholder = false;
+    stream.body.innerHTML = html;
+    scrollToBottom();
+  }, 120);
+}
+function endStream() {
+  if (!stream) return;
+  if (stream.renderT) { clearTimeout(stream.renderT); stream.renderT = null; }
+  stream = null;
+}
+
+// ================= extension dialogs =================
+function renderDialog(req) {
+  killEmptyState();
+  const d = document.createElement("div");
+  d.className = "dialog";
+  const q = document.createElement("div"); q.className = "q"; q.textContent = req.message || req.title || "Question";
+  d.appendChild(q);
+  if (req.description) {
+    const m = document.createElement("div"); m.className = "m"; m.textContent = req.description;
+    d.appendChild(m);
+  }
+  if (req.options?.length) {
+    const opts = document.createElement("div"); opts.className = "opts";
+    req.options.forEach((o, i) => {
+      const b = document.createElement("button");
+      b.textContent = o.label || o;
+      b.onclick = () => {
+        d.classList.add("answered");
+        const a = document.createElement("div"); a.className = "answer";
+        a.textContent = "→ " + b.textContent;
+        d.appendChild(a);
+        send({ type: "extension_ui_response", id: req.id, response: { selected: o.value ?? o } });
+      };
+      opts.appendChild(b);
+    });
+    d.appendChild(opts);
+  } else if (req.allowSubmit !== false) {
+    const ta = document.createElement("textarea");
+    ta.rows = 2; ta.value = req.defaultValue || "";
+    const go = document.createElement("button");
+    go.textContent = "Submit";
+    go.style.cssText = "background:var(--accent);border:1px solid var(--accent);color:#171512;font-weight:600;border-radius:7px;padding:5px 14px;cursor:pointer;font-size:13px";
+    go.onclick = () => {
+      d.classList.add("answered");
+      const a = document.createElement("div"); a.className = "answer";
+      a.textContent = "→ " + ta.value;
+      d.appendChild(a);
+      send({ type: "extension_ui_response", id: req.id, response: { text: ta.value } });
+    };
+    d.append(ta, go);
+  }
+  chat.appendChild(d);
+  scrollToBottom();
+}
+
+// ================= event dispatch =================
+function onEvent(rec) {
+  const s = active();
+  if (!s) return;
+  switch (rec.type) {
+    case "agent_start":
+      s.isStreaming = true; renderTabs();
+      $("stopbtn").classList.add("show");
+      break;
+    case "agent_end":
+      s.isStreaming = false; renderTabs();
+      $("stopbtn").classList.remove("show");
+      hideRetryBar();
+      setActivity("Ready", false);
+      refreshCtx();
+      break;
+    case "agent_settled":
+      s.isStreaming = false; renderTabs();
+      $("stopbtn").classList.remove("show");
+      setActivity("Ready", false);
+      refreshCtx();
+      break;
+    case "cwd_changed":
+      if (s) { s.cwd = rec.cwd; updatePill(); }
+      break;
+    case "session_info_changed":
+      if (s) {
+        s.name = rec.name || null;
+        renderTabs();
+        if (s.sid === activeSid) updatePill();
+      }
+      break;
+    case "message_start":
+      if (rec.message?.role === "user") {
+        if (s.queue.length) { const [chip] = s.queue.splice(0, 1); chip.remove(); renderQueue(); }
+        userMsg(rec.message.content, s.pendingBashCmd || null);
+        s.pendingBashCmd = null;
+        scrollToBottom();
+      } else if (rec.message?.role === "assistant") {
+        ensureStream();
+      }
+      break;
+    case "message_update":
+      if (stream) {
+        const ev = rec.assistantMessageEvent;
+        if (ev?.type === "thinking_delta") {
+          if (!stream.thinkEl) { stream.thinkEl = makeThinkEl(true); stream.body.appendChild(stream.thinkEl); stream.hasThinking = true; }
+          stream.thinkBuf += ev.delta;
+          scheduleStreamRender();
+        } else if (ev?.type === "text_delta") {
+          if (!stream.textSeg) {
+            stream.textSeg = document.createElement("div");
+            stream.body.appendChild(stream.textSeg);
+          }
+          stream.textBuf += ev.delta;
+          scheduleStreamRender();
+        }
+      }
+      break;
+    case "message_end": {
+      const m = rec.message;
+      if (m?.role === "assistant") {
+        if (stream) {
+          endStream();
+          renderAssistantFinal(stream.body, m.content);
+        } else {
+          const { body } = assistantContainer();
+          renderAssistantFinal(body, m.content);
+        }
+        if (m.usage) trackUsage(m.usage);
+        if (m.stopReason === "error" && m.errorMessage) showRetryBar(m.errorMessage);
+        scrollToBottom();
+      } else if (m?.role === "toolResult") {
+        attachToolResult(m.toolCallId, m.result, m.isError);
+        scrollToBottom();
+      }
+      break;
+    }
+    case "tool_execution_start": {
+      const st = ensureStream();
+      if (st.body.lastChild?.classList?.contains("md-placeholder")) st.body.innerHTML = "";
+      const row = makeToolRow(rec.toolCallId, rec.toolName, rec.args, "running");
+      st.body.appendChild(row);
+      setActivity(`Using ${rec.toolName}…`, true);
+      scrollToBottom();
+      break;
+    }
+    case "tool_execution_update":
+      break;
+    case "tool_execution_end": {
+      setActivity("Working…", true);
+      scrollToBottom();
+      break;
+    }
+    case "bash_execution_update": {
+      const r = bashCurrent;
+      if (r && rec.id === r.id) {
+        r.el.querySelector("pre").textContent += (rec.delta || "");
+        r.el.querySelector("pre").scrollTop = 1e9;
+        scrollToBottom();
+      }
+      break;
+    }
+    case "queue_update":
+      if (Array.isArray(rec.queue)) { s.queueEcho = rec.queue; }
+      break;
+    case "compaction_start":
+      setActivity("Compacting context…", true);
+      break;
+    case "compaction_end":
+      toast("context compacted");
+      refreshCtx();
+      break;
+    case "auto_retry_start":
+      setActivity(`auto-retrying (attempt ${rec.attempt ?? "?"}/${rec.maxAttempts ?? "?"})… ${rec.errorMessage || ""}`, true);
+      if (active() === s) showRetryBar(rec.errorMessage || "auto-retrying");
+      break;
+    case "extension_ui_request":
+      renderDialog(rec);
+      break;
+    case "extension_ui_response":
+      break;
+    case "extension_error":
+      toast("extension error: " + (rec.message || rec.error || ""), "error");
+      break;
+    case "get_commands_response":
+      s.cmdCache = (rec.data?.commands || rec.commands || []).map(c => ({
+        name: c.name, description: c.description || "", source: (c.source || "pi").toLowerCase(),
+      }));
+      if (slashOpen) updateSlash();
+      break;
+    case "get_state_response":
+      if (rec.data?.state) applyState(rec.data.state);
+      break;
+    case "get_messages_response":
+      break;
+    case "get_session_stats_response":
+      if (rec.data) s.stats = rec.data;
+      break;
+    case "branch_summary_response":
+      break;
+    case "pi_exited":
+      s.piAlive = false; s.isStreaming = false;
+      renderTabs();
+      $("stopbtn").classList.remove("show");
+      setActivity("pi process exited", false);
+      $("banner").style.display = "flex";
+      $("bannerText").textContent = `pi exited (${rec.code ?? "unknown"}) for ${baseName(s.cwd)}`;
+      break;
+  }
+}
+
+// ================= bash mode =================
+let bashCurrent = null; // {id, el}
+async function runBash(cmdStr) {
+  const s = active(); if (!s) return;
+  if (!s.piAlive) { toast("pi process is down — restart first", "warn"); return; }
+  userMsg(null, cmdStr);
+  const r = bashResBlock();
+  const id = "b" + Date.now();
+  bashCurrent = { id, el: r };
+  setActivity(`Running: ${cmdStr.slice(0, 60)}…`, true);
+  const p = send({ type: "bash", command: cmdStr, id }, 600000, s.sid);
+  p.then((rec) => {
+    if (bashCurrent?.id !== id) return;
+    bashCurrent = null;
+    const exit = r.querySelector(".exit");
+    if (rec.success) {
+      const out = rec.data || {};
+      const final = typeof out.output === "string" ? out.output : JSON.stringify(out, null, 2);
+      r.querySelector("pre").textContent = final || "(no output)";
+      const code = out.exitCode ?? 0;
+      exit.textContent = `exit ${code}${out.truncated ? " · truncated" : ""}${out.cancelled ? " · cancelled" : ""}`;
+      exit.className = "exit " + (code === 0 ? "ok" : "bad");
+    } else {
+      exit.textContent = "error: " + (rec.error || "unknown");
+      exit.className = "exit bad";
+    }
+    setActivity(s.isStreaming ? "Working…" : "Ready", s.isStreaming);
+    scrollToBottom(true);
+  });
+}
+
+// ================= slash menu =================
+let slashItems = [], slashIdx = 0, slashOpen = false;
+function slashVisible() {
+  const v = input.value;
+  if (!v.startsWith("/") || v.includes("\n") || v.includes("  ")) return false;
+  const first = v.slice(1).split(/\s+/)[0];
+  return !first.includes(" ");
+}
+async function getCommands(s) {
+  if (s.cmdCache) return s.cmdCache;
+  const r = await send({ type: "get_commands" }, 15000, s.sid);
+  s.cmdCache = (r.data?.commands || r.commands || []).map(c => ({
+    name: c.name, description: c.description || "", source: (c.source || "pi").toLowerCase(),
+  }));
+  return s.cmdCache;
+}
+function updateSlash() {
+  const menu = $("slashmenu");
+  const v = input.value;
+  if (!slashVisible()) { closeSlash(); return; }
+  const q = v.slice(1).toLowerCase();
+  const s = active();
+  if (!s) return;
+  getCommands(s).then((cmds) => {
+    if (!slashVisible()) { closeSlash(); return; }
+    slashItems = cmds.filter(c => c.name.startsWith(q)).slice(0, 8);
+    slashIdx = Math.min(slashIdx, Math.max(0, slashItems.length - 1));
+    if (!slashItems.length) {
+      menu.innerHTML = `<div class="smempty">no matching command (try <b>/${esc(q)}</b>)</div>`;
+    } else {
+      menu.innerHTML = "";
+      slashItems.forEach((c, i) => {
+        const row = document.createElement("div");
+        row.className = "smrow" + (i === slashIdx ? " sel" : "");
+        row.innerHTML = `<span class="nm">/${esc(c.name)}</span><span class="ds">${esc(c.description || "")}</span><span class="src">${esc(c.source)}</span>`;
+        row.onclick = () => applySlash(c.name);
+        menu.appendChild(row);
+      });
+    }
+    slashOpen = true;
+    menu.classList.add("show");
+  });
+}
+function closeSlash() {
+  slashOpen = false;
+  $("slashmenu").classList.remove("show");
+}
+function applySlash(name) {
+  input.value = "/" + name + " ";
+  closeSlash();
+  autosize();
+  input.focus();
+}
+
+// ================= queue + retry =================
+function renderQueue() {
+  const s = active();
+  const row = $("qrow");
+  row.innerHTML = "";
+  if (!s || !s.queue.length) { row.style.display = "none"; return; }
+  row.style.display = "flex";
+  for (const chip of s.queue) row.appendChild(chip);
+  const clr = document.createElement("button");
+  clr.id = "qclear"; clr.textContent = `clear (${s.queue.length})`;
+  clr.onclick = async () => {
+    const r = await send({ type: "clear_queue" }, 15000, s.sid);
+    if (r.success) { s.queue = []; renderQueue(); toast("queue cleared"); }
+  };
+  row.appendChild(clr);
+}
+function hideRetryBar() { $("retrybar").classList.remove("show"); }
+function showRetryBar(errMsg) {
+  const bar = $("retrybar");
+  bar.innerHTML = `<span class="rmsg">⚠ ${esc(errMsg.slice(0, 140))}</span>
+    <button id="rbRetry">↻ Retry last message</button>
+    <button id="rbStop">■ Stop retrying</button>`;
+  bar.classList.add("show");
+  bar.querySelector("#rbRetry").onclick = () => {
+    const s = active();
+    if (s?.lastUser) { hideRetryBar(); doSend(s.lastUser, true); }
+    else toast("no previous message to retry", "warn");
+  };
+  bar.querySelector("#rbStop").onclick = async () => {
+    const r = await send({ type: "abort_retry" }, 15000);
+    if (r.success) { hideRetryBar(); toast("retries stopped"); }
+  };
+}
+$("qmode").onclick = () => {
+  queueMode = queueMode === "steer" ? "followUp" : "steer";
+  $("qmode").textContent = queueMode === "steer" ? "➜ steer" : "➜ queue";
+  toast("mid-run messages will " + (queueMode === "steer" ? "steer (inject before next LLM call)" : "queue (wait until pi stops)"));
+};
+
+// ================= send =================
+let attachments = [];
+function autosize() {
+  input.style.height = "auto";
+  input.style.height = Math.min(200, input.scrollHeight) + "px";
+}
+input.addEventListener("input", () => { autosize(); updateSlash(); });
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    if (slashOpen && slashItems.length) { e.preventDefault(); applySlash(slashItems[slashIdx].name); return; }
+    e.preventDefault(); doSend(input.value, false);
+  } else if (e.key === "Escape") {
+    if (slashOpen) { e.preventDefault(); closeSlash(); return; }
+    const s = active();
+    if (s?.isStreaming) send({ type: "abort" });
+  } else if (slashOpen) {
+    if (e.key === "ArrowDown") { e.preventDefault(); slashIdx = Math.min(slashIdx + 1, slashItems.length - 1); updateSlash(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); slashIdx = Math.max(slashIdx - 1, 0); updateSlash(); }
+    else if (e.key === "Tab") { e.preventDefault(); applySlash(slashItems[slashIdx]?.name); }
+  }
+});
+$("stopbtn").onclick = () => { const s = active(); if (s?.isStreaming) send({ type: "abort" }); };
+
+async function doSend(raw, isRetry = false) {
+  const s = active();
+  if (!s) return;
+  const text = raw.trim();
+  if (!text) return;
+
+  if (text.startsWith("!")) {
+    const cmdStr = text.slice(1).trim();
+    if (!cmdStr) return;
+    input.value = ""; autosize(); closeSlash();
+    s.pendingBashCmd = cmdStr;
+    await runBash(cmdStr);
+    return;
+  }
+
+  // build content
+  const content = [];
+  for (const a of attachments) {
+    if (a.kind === "image") content.push({ type: "image", data: a.data, mimeType: a.mimeType, name: a.name });
+    else content.push({ type: "text", text: `--- attached file: ${a.name} ---\n${a.text}\n--- end of ${a.name} ---` });
+  }
+  if (text) content.push({ type: "text", text });
+  const msg = content.length === 1 && content[0].type === "text" ? content[0].text : content;
+
+  if (!s.piAlive) { toast("pi process is down — restart first", "warn"); return; }
+
+  if (attachments.some(a => a.kind === "image")) {
+    const m = models.find(x => x.providerId === modelSel.value.split("::")[0] && x.modelId === modelSel.value.split("::")[1]);
+    if (m && !m.input?.includes("image")) toast("this model may not accept images", "warn");
+  }
+
+  input.value = ""; autosize(); closeSlash();
+  s.lastUser = msg;
+  clearAttachments();
+
+  const cmd = { type: "prompt", message: msg };
+  let queued = false;
+  if (s.isStreaming && !isRetry) {
+    cmd.streamingBehavior = queueMode;
+    queued = true;
+  }
+  const r = await send(cmd, 120000, s.sid);
+  if (!r.success && !queued) {
+    toast("send failed: " + (r.error || "unknown"), "error");
+    userMsg(msg); // local echo so it's visible
+    input.value = text; autosize();
+  } else if (queued) {
+    const chip = document.createElement("span");
+    chip.className = "qchip";
+    const modeLbl = queueMode === "steer" ? "steer" : "queue";
+    chip.innerHTML = `<span class="qmode">${modeLbl}</span><span class="qtxt">${esc(String(text).slice(0, 80))}</span>`;
+    s.queue.push(chip);
+    renderQueue();
+    setActivity(s.isStreaming ? "Working… (message queued)" : "Ready", s.isStreaming);
+  }
+}
+
+// ================= attachments =================
+const IMG_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+const TEXT_EXT = /\.(md|markdown|txt|text|log|json|ya?ml|toml|ini|env|csv|tsv|js|mjs|cjs|jsx|ts|tsx|py|sh|bash|zsh|fish|rb|go|rs|java|kt|c|h|cpp|hpp|cs|html|css|scss|xml|sql|graphql|proto|dockerfile|makefile|gitignore|editorconfig)\.?\w*$/i;
+const MAX_IMAGE = 10 * 1024 * 1024;
+const MAX_TEXT = 100 * 1024;
+
+function renderAttachments() {
+  const row = $("attachrow");
+  row.innerHTML = "";
+  attachments.forEach((a, i) => {
+    const c = document.createElement("span");
+    c.className = "chip";
+    if (a.kind === "image") c.innerHTML = `<img src="${a.dataUrl}"><span class="cname">${esc(a.name)}</span>`;
+    else c.innerHTML = `<span class="fico">📄</span><span class="cname">${esc(a.name)} <small style="color:var(--dimmer)">(${(a.size/1024).toFixed(1)}KB)</small></span>`;
+    const x = document.createElement("span");
+    x.className = "x"; x.textContent = "✕";
+    x.onclick = () => { attachments.splice(i, 1); renderAttachments(); };
+    c.appendChild(x);
+    row.appendChild(c);
+  });
+  row.style.display = attachments.length ? "flex" : "none";
+}
+function clearAttachments() { attachments = []; renderAttachments(); }
+
+function addFile(f) {
+  if (f.size > MAX_IMAGE) { toast(`too big: ${f.name} (${(f.size/1048576).toFixed(1)}MB)`, "warn"); return; }
+  const isImage = IMG_TYPES.includes(f.type);
+  const looksText = !isImage && (f.type.startsWith("text/") || f.type === "" || TEXT_EXT.test(f.name));
+  if (!isImage && !looksText) { toast(`skipped: ${f.name} (unsupported type)`, "warn"); return; }
+  const reader = new FileReader();
+  if (isImage) {
+    reader.onload = () => {
+      attachments.push({ kind: "image", name: f.name, mimeType: f.type,
+        data: String(reader.result).split(",")[1], size: f.size, dataUrl: reader.result });
+      renderAttachments();
+    };
+    reader.readAsDataURL(f);
+  } else {
+    if (f.size > MAX_TEXT) { toast(`${f.name} too large to inline (>${MAX_TEXT/1024}KB)`, "warn"); return; }
+    reader.onload = () => {
+      attachments.push({ kind: "text", name: f.name, text: String(reader.result), size: f.size });
+      renderAttachments();
+    };
+    reader.readAsText(f);
+  }
+}
+$("attachBtn").onclick = () => $("filePick").click();
+$("filePick").onchange = (e) => { for (const f of e.target.files) addFile(f); e.target.value = ""; };
+document.addEventListener("paste", (e) => {
+  for (const it of e.clipboardData?.items || []) {
+    if (it.type.startsWith("image/")) { const f = it.getAsFile(); if (f) addFile(f); }
+  }
+});
+let dragDepth = 0;
+document.addEventListener("dragenter", (e) => {
+  if ([...e.dataTransfer?.types || []].includes("Files")) {
+    e.preventDefault(); dragDepth++; $("dropzone").classList.add("show");
+  }
+});
+document.addEventListener("dragover", (e) => { if (dragDepth) e.preventDefault(); });
+document.addEventListener("dragleave", (e) => {
+  if (dragDepth) { e.preventDefault(); if (--dragDepth === 0) $("dropzone").classList.remove("show"); }
+});
+document.addEventListener("drop", (e) => {
+  if (dragDepth) {
+    e.preventDefault(); dragDepth = 0; $("dropzone").classList.remove("show");
+    for (const f of e.dataTransfer?.files || []) addFile(f);
+  }
+});
+
+// ================= state / model =================
+const modelSel = $("model");
+const thinkingSel = $("thinking");
+function refreshState() {
+  const s = active(); if (!s) return;
+  send({ type: "get_state" }, 15000, s.sid).then((r) => {
+    if (r.success && r.data?.state && s.sid === activeSid) applyState(r.data.state);
+  });
+}
+function applyState(st) {
+  if (st.model) {
+    const key = st.model.providerId + "::" + st.model.id;
+    if (![...modelSel.options].some(o => o.value === key)) {
+      const o = document.createElement("option");
+      o.value = key; o.textContent = `${st.model.providerId} · ${st.model.name || st.model.id}`;
+      modelSel.appendChild(o);
+    }
+    modelSel.value = key;
+  }
+  if (st.thinkingLevel) thinkingSel.value = st.thinkingLevel;
+  $("sessionInfo").textContent = st.sessionFile ? st.sessionFile.split("/").pop() : "";
+  if (st.isStreaming != null) {
+    active().isStreaming = st.isStreaming;
+    renderTabs();
+    $("stopbtn").classList.toggle("show", !!st.isStreaming);
+    setActivity(st.isStreaming ? "Working…" : "Ready", !!st.isStreaming);
+  }
+}
+async function loadModels() {
+  const s = active(); if (!s) return;
+  const r = await send({ type: "get_available_models" }, 30000, s.sid);
+  if (!r.success || !Array.isArray(r.data?.models)) return;
+  models = r.data.models;
+  modelSel.innerHTML = "";
+  const byProvider = new Map();
+  for (const m of models) {
+    if (!byProvider.has(m.providerId)) byProvider.set(m.providerId, []);
+    byProvider.get(m.providerId).push(m);
+  }
+  for (const [pid, ms] of [...byProvider.entries()].sort()) {
+    const g = document.createElement("optgroup");
+    g.label = pid;
+    for (const m of ms.sort((a, b) => a.id.localeCompare(b.id))) {
+      const o = document.createElement("option");
+      o.value = pid + "::" + m.id;
+      o.textContent = m.name || m.id;
+      g.appendChild(o);
+    }
+    modelSel.appendChild(g);
+  }
+  refreshState();
+}
+modelSel.onchange = () => {
+  const [pid, mid] = modelSel.value.split("::");
+  send({ type: "set_model", provider: pid, model: mid }, 15000);
+  toast("model → " + modelSel.selectedOptions[0]?.textContent);
+};
+thinkingSel.onchange = () => {
+  send({ type: "set_thinking_level", level: thinkingSel.value }, 15000);
+  toast("thinking → " + thinkingSel.value);
+};
+
+// ================= file peek drawer =================
+$("fdClose").onclick = () => $("filedrawer").classList.remove("show");
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("filedrawer").classList.remove("show"); });
+async function peekFile(path) {
+  const s = active();
+  const cwd = s?.cwd;
+  const abs = path.startsWith("/") ? path : (cwd ? cwd.replace(/\/$/, "") + "/" + path : path);
+  const r = await fetch("/api/file?path=" + encodeURIComponent(abs));
+  const d = await r.json();
+  if (!r.ok) { toast(d.error || "can't open file", "error"); return; }
+  $("fdName").textContent = baseName(d.path);
+  $("fdPath").textContent = d.path + (d.truncated ? ` (showing ${d.lines} lines)` : "");
+  const body = $("fdBody");
+  if (d.binary) {
+    body.innerHTML = `<div class="fnote">Binary file — ${(d.size / 1024).toFixed(1)} KB, no text preview.</div>`;
+  } else if (d.note) {
+    body.innerHTML = `<div class="fnote">${esc(d.note)}</div><pre>${esc(d.content || "")}</pre>`;
+  } else {
+    const ext = (d.path.split(".").pop() || "").toLowerCase();
+    const lang = EXT_LANG[ext] || "txt";
+    body.innerHTML = `<pre>${highlight(d.content, lang)}</pre>`;
+  }
+  $("filedrawer").classList.add("show");
+}
+
+// ================= project picker (new session) =================
+let browsePath = "";
+let homePath = "/";
+async function openPicker() {
+  const s = active();
+  browsePath = s?.cwd || homePath || "/";
+  $("mPath").value = browsePath;
+  $("overlay").classList.add("show");
+  await browse(browsePath);
+  $("mPath").focus();
+}
+async function browse(p) {
+  const r = await fetch("/api/dirs?path=" + encodeURIComponent(p));
+  const d = await r.json();
+  if (!r.ok) { toast(d.error || "can't list dir", "error"); return; }
+  browsePath = d.path;
+  $("mPath").value = browsePath;
+  const list = $("mList");
+  list.innerHTML = "";
+  if (d.parent) {
+    const row = mkRow("..", "up");
+    row.onclick = () => browse(d.parent);
+    list.appendChild(row);
+  }
+  if (d.directories.length) {
+    const sec = document.createElement("div"); sec.className = "sec"; sec.textContent = "folders";
+    list.appendChild(sec);
+    for (const dir of d.directories) {
+      const row = mkRow(dir.name + "/", "dir");
+      row.onclick = () => browse(browsePath + (browsePath === "/" ? "" : "/") + dir.name);
+      list.appendChild(row);
+    }
+  }
+  if (d.recent?.length) {
+    const sec = document.createElement("div"); sec.className = "sec"; sec.textContent = "recent";
+    list.appendChild(sec);
+    for (const rp of d.recent) {
+      const row = mkRow(baseName(rp) + "  <span style='color:var(--dimmer)'>" + rp + "</span>", "recent", true);
+      row.onclick = () => browse(rp);
+      list.appendChild(row);
+    }
+  }
+  if (!d.directories.length && !d.recent?.length && !d.parent)
+    list.innerHTML = `<div class="smempty">empty</div>`;
+}
+function mkRow(label, kind, html) {
+  const row = document.createElement("div");
+  row.className = "row " + kind;
+  const ico = kind === "dir" ? "▸" : kind === "recent" ? "↺" : "↑";
+  row.innerHTML = `<span class="ico">${ico}</span>`;
+  if (html) row.insertAdjacentHTML("beforeend", label);
+  else row.insertAdjacentHTML("beforeend", esc(label));
+  return row;
+}
+$("mCancel").onclick = () => $("overlay").classList.remove("show");
+$("mHome").onclick = () => browse(homePath);
+$("mUp").onclick = () => {
+  const parts = browsePath.replace(/\/$/, "").split("/");
+  parts.pop();
+  browse(parts.join("/") || "/");
+};
+$("mGo").onclick = () => browse($("mPath").value.trim() || "/");
+$("mPath").addEventListener("keydown", (e) => { if (e.key === "Enter") browse($("mPath").value.trim() || "/"); });
+$("mOpen").onclick = async () => {
+  const r = await fetch("/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cwd: browsePath }) });
+  const d = await r.json();
+  if (!r.ok) { toast(d.error || "failed to create session", "error"); return; }
+  $("overlay").classList.remove("show");
+  const s = makeSession(d);
+  toast(`new session in ${baseName(browsePath)}`);
+  await switchTo(d.sid);
+};
+$("projBtn").onclick = () => openPicker();
+$("overlay").onclick = (e) => { if (e.target.id === "overlay") $("overlay").classList.remove("show"); };
+
+// ================= banner / restart =================
+$("bannerBtn").onclick = async () => {
+  const s = active(); if (!s) return;
+  $("banner").style.display = "none";
+  toast("restarting pi…", "warn");
+  const r = await fetch("/api/restart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sid: s.sid }) });
+  if (r.ok) {
+    s.piAlive = true;
+    renderedSid = null; // force re-render
+    attachEvents(s);
+    renderTabs();
+    await switchTo(s.sid);
+    toast("pi restarted");
+  } else toast("restart failed", "error");
+};
+
+// ================= init =================
+async function init() {
+  try { homePath = (await fetch("/api/info").then(r => r.json())).home || homePath; } catch {}
+  thinkingSel.innerHTML = "";
+  for (const [v, l] of [["off", "no thinking"], ["minimal", "minimal"], ["low", "low"], ["medium", "medium"], ["high", "high"], ["xhigh", "xhigh"]]) {
+    const o = document.createElement("option");
+    o.value = v; o.textContent = l;
+    thinkingSel.appendChild(o);
+  }
+  const r = await fetch("/api/sessions");
+  let list = await r.json();
+  if (!list.length) {
+    const cr = await fetch("/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    list = [await cr.json()];
+  }
+  for (const info of list) makeSession(info);
+  await switchTo(list[0].sid);
+  loadModels();
+  input.focus();
+}
+init();
+</script>
+</body>
+</html>
