@@ -24,7 +24,87 @@ Environment:
 | `PI_GUI_PORT` | `4747` | listen port (127.0.0.1 only) |
 | `PI_GUI_CWD` | `$PWD` | working dir for the initial session |
 | `PI_BIN` | `pi` | pi executable |
-| `PI_GUI_NOTIFY` | on (macOS) | `0` to disable native notifications |
+| `PI_GUI_NOTIFY` | on (macOS & Linux) | `0` to disable native notifications (osascript / notify-send) |
+
+## Setup on a new machine
+
+Works on macOS and Linux (tested targets: macOS + CachyOS/Arch). Three
+requirements: **Node >= 18**, **pi**, and this folder.
+
+### 1. Node
+
+```sh
+# macOS (Homebrew)
+brew install node
+
+# CachyOS / Arch
+sudo pacman -S nodejs          # or: sudo pacman -S nodejs-lts
+```
+
+### 2. pi
+
+```sh
+npm install -g @earendil-works/pi-coding-agent
+pi --version                   # sanity check
+```
+
+Your `~/.pi/agent/` config (models, settings, auth) travels with your account —
+the ollama-pro and openai-codex providers work from any machine; the local
+`llamaswap` provider only works where `http://10.0.4.79:8080` is reachable.
+
+### 3. pi-gui
+
+```sh
+git clone https://gitlab.seanlab.us/homelab/pi-gui.git ~/pi-gui
+cd ~/pi-gui && node server.mjs
+# open http://127.0.0.1:4747
+```
+
+### Start at login (optional)
+
+**macOS** — System Settings → General → Login Items → add a shell script or
+`/usr/bin/open http://127.0.0.1:4747` after starting the server, or a LaunchAgent:
+
+```sh
+mkdir -p ~/Library/LaunchAgents
+cat > ~/Library/LaunchAgents/us.sean.pi-gui.plist <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>us.sean.pi-gui</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/sh</string><string>-c</string>
+    <string>cd $HOME/pi-gui && exec node server.mjs</string></array>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/tmp/pi-gui.log</string>
+  <key>StandardErrorPath</key><string>/tmp/pi-gui.log</string>
+</dict></plist>
+EOF
+launchctl load ~/Library/LaunchAgents/us.sean.pi-gui.plist
+```
+
+**CachyOS (systemd --user)** — note the PATH: `pi` and `node` must be on it:
+
+```sh
+cat > ~/.config/systemd/user/pi-gui.service <<'EOF'
+[Unit]
+Description=pi-gui local web GUI
+
+[Service]
+WorkingDirectory=%h/pi-gui
+Environment=PATH=/usr/bin:/bin
+ExecStart=/usr/bin/node server.mjs
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+EOF
+systemctl --user daemon-reload
+systemctl --user enable --now pi-gui
+```
 
 ## Features
 

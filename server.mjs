@@ -37,7 +37,7 @@ const PORT = Number(process.env.PI_GUI_PORT || 4747);
 const DEFAULT_CWD = process.env.PI_GUI_CWD || process.cwd();
 const PI_BIN = process.env.PI_BIN || "pi";
 const MAX_SESSIONS = 5;
-const NOTIFY = process.env.PI_GUI_NOTIFY !== "0" && process.platform === "darwin";
+const NOTIFY = process.env.PI_GUI_NOTIFY !== "0" && (process.platform === "darwin" || process.platform === "linux");
 
 const sessions = new Map(); // sid -> session
 const RECENT_FILE = join(homedir(), "pi-gui", "projects.json");
@@ -67,7 +67,11 @@ function makeSid() {
 function notifyMac(title, msg) {
   if (!NOTIFY) return;
   const clean = (s) => String(s).replace(/["\n\r]/g, " ").slice(0, 160);
-  execFile("osascript", ["-e", `display notification "${clean(msg)}" with title "${clean(title)}"`], () => {});
+  if (process.platform === "darwin") {
+    execFile("osascript", ["-e", `display notification "${clean(msg)}" with title "${clean(title)}"`], () => {});
+  } else {
+    execFile("notify-send", ["-a", "pi-gui", clean(title), clean(msg)], () => {});
+  }
 }
 
 // ---------------- session lifecycle ----------------
