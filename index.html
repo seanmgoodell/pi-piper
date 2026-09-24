@@ -1649,9 +1649,10 @@ modelSel.onchange = async () => {
   if (r.success) toast("model → " + (modelSel.selectedOptions[0]?.textContent || mid));
   else { toast("model switch failed: " + (r.error || "unknown"), "error"); refreshState(); }
 };
-thinkingSel.onchange = () => {
-  send({ type: "set_thinking_level", level: thinkingSel.value }, 15000);
-  toast("thinking → " + thinkingSel.value);
+thinkingSel.onchange = async () => {
+  const r = await send({ type: "set_thinking_level", level: thinkingSel.value }, 15000);
+  if (r.success) toast("thinking → " + thinkingSel.value);
+  else { toast("thinking level failed: " + (r.error || "unknown"), "error"); refreshState(); }
 };
 
 // ================= file peek drawer =================
