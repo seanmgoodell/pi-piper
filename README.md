@@ -29,7 +29,7 @@ Environment:
 
 ## Setup on a new machine
 
-Works on macOS, Linux, and Windows (tested targets: macOS + CachyOS/Arch).
+Works on macOS, Linux, and Windows (tested targets: macOS + Arch (CachyOS)).
 Three requirements: **Node >= 22.19** (for current pi), **pi**, and this folder.
 
 ### 1. Node
@@ -38,13 +38,31 @@ Three requirements: **Node >= 22.19** (for current pi), **pi**, and this folder.
 # macOS (Homebrew)
 brew install node
 
-# CachyOS / Arch
+# Arch (CachyOS)
 sudo pacman -S --needed nodejs npm git
+
+# Debian (Ubuntu)
+sudo apt update
+sudo apt install -y nodejs npm git
+
+# Red Hat (Fedora)
+sudo dnf install -y nodejs git
+
+# openSUSE (Tumbleweed)
+sudo zypper install -y nodejs git
+
+# Alpine
+sudo apk add nodejs npm git
 
 # Windows (PowerShell)
 winget install OpenJS.NodeJS.LTS
 winget install Git.Git
 ```
+
+Distro-repo Node versions can trail pi's **>= 22.19** requirement — notably on
+Debian/Ubuntu LTS and RHEL-family releases. Check `node --version`; if it's
+older, install Node 22+ from NodeSource (deb.nodesource.com /
+rpm.nodesource.com) or via nvm.
 
 ### 2. pi
 
@@ -90,7 +108,9 @@ EOF
 launchctl load ~/Library/LaunchAgents/us.sean.pi-piper.plist
 ```
 
-**CachyOS (systemd --user)** — note the PATH: `pi` and `node` must be on it:
+**Linux (systemd --user)** — tested on Arch (CachyOS); works on any systemd
+distro. Note the PATH: `pi` and `node` must be on it (if `node` lives
+elsewhere, use `command -v node`):
 
 ```sh
 cat > ~/.config/systemd/user/pi-piper.service <<'EOF'
