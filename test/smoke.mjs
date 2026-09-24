@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// pi-gui smoke tests — zero-dependency, runs against server.mjs with a stub `pi` (test/stub-pi.mjs).
+// pi-piper smoke tests — zero-dependency, runs against server.mjs with a stub `pi` (test/stub-pi.mjs).
 //
 //   node test/smoke.mjs
 //
@@ -90,7 +90,7 @@ const childPids = new Set();
 const alive = () => server && server.exitCode === null;
 
 async function main() {
-  tmp = mkdtempSync(join(tmpdir(), "pi-gui-smoke-"));
+  tmp = mkdtempSync(join(tmpdir(), "pi-piper-smoke-"));
   const stubLog = join(tmp, "stub.log");
 
   const stubSessionFile = join(tmp, "stub-session.jsonl"); // must exist for boot-restore resume

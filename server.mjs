@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// pi-gui server: a tiny zero-dependency bridge between a browser and a pi
+// pi-piper server: a tiny zero-dependency bridge between a browser and a pi
 // agent running in RPC mode. Supports MULTIPLE concurrent sessions
 // (each = one pi child process with its own cwd, SSE stream, pending map).
 //
@@ -41,8 +41,8 @@ const MAX_SESSIONS = 5;
 const NOTIFY = process.env.PI_GUI_NOTIFY !== "0" && (process.platform === "darwin" || process.platform === "linux");
 
 const sessions = new Map(); // sid -> session
-const RECENT_FILE = join(homedir(), "pi-gui", "projects.json");
-const SESSIONS_FILE = process.env.PI_GUI_STATE || join(homedir(), "pi-gui", "sessions.json");
+const RECENT_FILE = join(homedir(), "pi-piper", "projects.json");
+const SESSIONS_FILE = process.env.PI_GUI_STATE || join(homedir(), "pi-piper", "sessions.json");
 
 const base = (p) => (p || "").split("/").filter(Boolean).pop() || "/";
 
@@ -86,7 +86,7 @@ function notifyMac(title, msg) {
   if (process.platform === "darwin") {
     execFile("osascript", ["-e", `display notification "${clean(msg)}" with title "${clean(title)}"`], () => {});
   } else {
-    execFile("notify-send", ["-a", "pi-gui", clean(title), clean(msg)], () => {});
+    execFile("notify-send", ["-a", "pi-piper", clean(title), clean(msg)], () => {});
   }
 }
 
@@ -134,7 +134,7 @@ function startPi(sess) {
     sess.piExitCode = code;
     failPending(sess, `pi exited (code ${code})`);
     broadcast(sess, { type: "pi_exited", code, signal: sig });
-    if (sessions.has(sess.sid)) notifyMac("pi-gui", `pi exited in ${sess.name || base(sess.cwd)}${code != null ? ` (code ${code})` : ""}`);
+    if (sessions.has(sess.sid)) notifyMac("pi-piper", `pi exited in ${sess.name || base(sess.cwd)}${code != null ? ` (code ${code})` : ""}`);
   });
 
   pi.stdout.setEncoding("utf8");
@@ -160,7 +160,7 @@ function startPi(sess) {
           saveSessions();
         }
         if (rec.type === "agent_settled") {
-          notifyMac("pi-gui", `Turn complete — ${sess.name || base(sess.cwd)}`);
+          notifyMac("pi-piper", `Turn complete — ${sess.name || base(sess.cwd)}`);
         }
         broadcast(sess, rec);
       }
@@ -452,7 +452,7 @@ if (saved.length) {
   createSession(null, null);
 }
 server.listen(PORT, "127.0.0.1", () => {
-  console.log(`pi-gui: http://127.0.0.1:${PORT}  (initial cwd: ${DEFAULT_CWD}, ${sessions.size} session${sessions.size === 1 ? "" : "s"}, restored ${Math.min(saved.length, MAX_SESSIONS)})`);
+  console.log(`pi-piper: http://127.0.0.1:${PORT}  (initial cwd: ${DEFAULT_CWD}, ${sessions.size} session${sessions.size === 1 ? "" : "s"}, restored ${Math.min(saved.length, MAX_SESSIONS)})`);
 });
 function killAll() {
   for (const s of sessions.values()) { try { s.pi?.stdin.end(); } catch {} }

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Minimal fake `pi --mode rpc` for pi-gui's smoke tests.
+// Minimal fake `pi --mode rpc` for pi-piper's smoke tests.
 //
 // Env:
 //   STUB_LOG            append {"pid":..,"event":..} JSONL here when set

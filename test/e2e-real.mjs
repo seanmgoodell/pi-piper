@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Real-pi acceptance E2E — exercises pi-gui's server with the REAL pi binary.
+// Real-pi acceptance E2E — exercises pi-piper's server with the REAL pi binary.
 //
 //   node test/e2e-real.mjs
 //
@@ -46,7 +46,7 @@ function openSse(sid) {
   });
 }
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-const tmp = mkdtempSync(join(tmpdir(), "pi-gui-e2e-"));
+const tmp = mkdtempSync(join(tmpdir(), "pi-piper-e2e-"));
 const server = spawn("node", [join(ROOT, "server.mjs")], {
   env: { ...process.env, PI_GUI_PORT: String(PORT), PI_GUI_CWD: tmp, PI_GUI_NOTIFY: "0", PI_GUI_STATE: join(tmp, "state.json") },
   stdio: ["ignore", "pipe", "pipe"],
@@ -68,15 +68,15 @@ try {
   const sm = await cmd(sid, { type: "set_model", provider: "ollama-pro", modelId: "glm-5.3-flash" }, 30000);
   check("3. set_model (UI shape: provider+modelId)", sm.json?.success === true && sm.json?.data?.id === "glm-5.3-flash", JSON.stringify(sm.json).slice(0, 150));
 
-  const pr = await cmd(sid, { type: "prompt", message: "Create a file named hello.txt containing exactly the text: pi-gui works — use the write tool. Then reply with just the word DONE." });
+  const pr = await cmd(sid, { type: "prompt", message: "Create a file named hello.txt containing exactly the text: pi-piper works — use the write tool. Then reply with just the word DONE." });
   check("4. tool-use prompt accepted", pr.json?.success === true, JSON.stringify(pr.json).slice(0, 150));
   const t0 = Date.now();
   while (!sse.has("agent_settled") && Date.now() - t0 < 150000) await sleep(500);
   check("5. SSE: full turn streamed (agent_start→tool exec→settled)", sse.has("agent_start") && sse.has("agent_settled") && sse.events.some((e) => e.type === "tool_execution_start" && e.toolName === "write"), JSON.stringify([...new Set(sse.events.map((e) => e.type))]));
-  check("6. write tool executed + file has expected content", existsSync(join(tmp, "hello.txt")) && readFileSync(join(tmp, "hello.txt"), "utf8").includes("pi-gui works"), existsSync(join(tmp, "hello.txt")) ? readFileSync(join(tmp, "hello.txt"), "utf8").slice(0, 80) : "missing");
+  check("6. write tool executed + file has expected content", existsSync(join(tmp, "hello.txt")) && readFileSync(join(tmp, "hello.txt"), "utf8").includes("pi-piper works"), existsSync(join(tmp, "hello.txt")) ? readFileSync(join(tmp, "hello.txt"), "utf8").slice(0, 80) : "missing");
 
   const bash = await cmd(sid, { type: "bash", command: "cat hello.txt", id: "be2e" }, 30000);
-  check("7. bash mode returns real output + exit 0", bash.json?.data?.output?.includes("pi-gui works") && bash.json?.data?.exitCode === 0, JSON.stringify(bash.json?.data).slice(0, 120));
+  check("7. bash mode returns real output + exit 0", bash.json?.data?.output?.includes("pi-piper works") && bash.json?.data?.exitCode === 0, JSON.stringify(bash.json?.data).slice(0, 120));
 
   const stats = await cmd(sid, { type: "get_session_stats" }, 30000);
   check("8. session stats: contextUsage for the gauge", stats.json?.data?.contextUsage?.percent != null && stats.json?.data?.tokens?.input > 0, JSON.stringify(stats.json?.data?.contextUsage).slice(0, 120));
@@ -121,7 +121,7 @@ try {
   const gm3 = await cmd(sid, { type: "get_messages" }, 30000);
   const assts3 = (gm3.json?.data?.messages ?? []).filter((m) => m.role === "assistant");
   const memReply = assts3.length ? assts3[assts3.length - 1].content.filter((c) => c.type === "text").map((c) => c.text).join("") : "";
-  check("15. model remembers pre-restart facts (hello.txt content)", /pi-gui works/i.test(memReply), JSON.stringify(memReply.slice(0, 160)));
+  check("15. model remembers pre-restart facts (hello.txt content)", /pi-piper works/i.test(memReply), JSON.stringify(memReply.slice(0, 160)));
 
   const sm2 = await cmd(sid, { type: "set_model", provider: "openai-codex", modelId: "gpt-5.5" }, 30000);
   check("16. model switch to vision model", sm2.json?.success === true, JSON.stringify(sm2.json).slice(0, 120));

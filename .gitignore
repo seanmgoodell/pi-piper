@@ -7,3 +7,6 @@ pi-session-*.html
 # local scratch / infra notes not part of the GUI
 main.bicep
 TRAVEL-TAILSCALE.md
+
+# local planning artifact
+PLAN.md

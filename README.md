@@ -1,4 +1,4 @@
-# pi-gui
+# pi-piper
 
 A tiny local web GUI for the [pi coding agent](https://github.com/badlogic/pi-mono).
 Zero npm dependencies: plain Node >= 18 + one HTML file (current pi requires
@@ -14,7 +14,7 @@ browser  <--HTTP/SSE-->  node server.mjs  <--stdin/stdout JSONL-->  pi --mode rp
 ## Run
 
 ```sh
-cd ~/pi-gui
+cd ~/pi-piper
 node server.mjs          # http://127.0.0.1:4747
 ```
 
@@ -56,13 +56,11 @@ pi --version                   # sanity check
 Run `pi`, then `/login` to configure your own model provider. Authentication
 is private to your account (`~/.pi/agent/auth.json`); do not share it.
 
-### 3. pi-gui
-
-For a single-file transfer without GitLab access, see [DEPLOY.md](DEPLOY.md).
+### 3. pi-piper
 
 ```sh
-git clone https://gitlab.seanlab.us/homelab/pi-gui.git ~/pi-gui
-cd ~/pi-gui && node server.mjs
+git clone https://github.com/seanhome71/pi-piper.git ~/pi-piper
+cd ~/pi-piper && node server.mjs
 # open http://127.0.0.1:4747
 ```
 
@@ -73,34 +71,34 @@ cd ~/pi-gui && node server.mjs
 
 ```sh
 mkdir -p ~/Library/LaunchAgents
-cat > ~/Library/LaunchAgents/us.sean.pi-gui.plist <<'EOF'
+cat > ~/Library/LaunchAgents/us.sean.pi-piper.plist <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>Label</key><string>us.sean.pi-gui</string>
+  <key>Label</key><string>us.sean.pi-piper</string>
   <key>ProgramArguments</key>
   <array><string>/bin/sh</string><string>-c</string>
-    <string>cd $HOME/pi-gui && exec node server.mjs</string></array>
+    <string>cd $HOME/pi-piper && exec node server.mjs</string></array>
   <key>EnvironmentVariables</key>
   <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/tmp/pi-gui.log</string>
-  <key>StandardErrorPath</key><string>/tmp/pi-gui.log</string>
+  <key>StandardOutPath</key><string>/tmp/pi-piper.log</string>
+  <key>StandardErrorPath</key><string>/tmp/pi-piper.log</string>
 </dict></plist>
 EOF
-launchctl load ~/Library/LaunchAgents/us.sean.pi-gui.plist
+launchctl load ~/Library/LaunchAgents/us.sean.pi-piper.plist
 ```
 
 **CachyOS (systemd --user)** — note the PATH: `pi` and `node` must be on it:
 
 ```sh
-cat > ~/.config/systemd/user/pi-gui.service <<'EOF'
+cat > ~/.config/systemd/user/pi-piper.service <<'EOF'
 [Unit]
-Description=pi-gui local web GUI
+Description=pi-piper local web GUI
 
 [Service]
-WorkingDirectory=%h/pi-gui
+WorkingDirectory=%h/pi-piper
 Environment=PATH=/usr/bin:/bin
 ExecStart=/usr/bin/node server.mjs
 Restart=on-failure
@@ -109,7 +107,7 @@ Restart=on-failure
 WantedBy=default.target
 EOF
 systemctl --user daemon-reload
-systemctl --user enable --now pi-gui
+systemctl --user enable --now pi-piper
 ```
 
 **Windows** — drop a small launcher `.bat` into your Startup folder
@@ -117,14 +115,14 @@ systemctl --user enable --now pi-gui
 
 ```bat
 @echo off
-cd /d %USERPROFILE%\pi-gui
+cd /d %USERPROFILE%\pi-piper
 start "" /min node server.mjs
 ```
 
 Or register a scheduled task that runs at logon:
 
 ```powershell
-schtasks /create /tn pi-gui /sc onlogon /tr "cmd /c cd /d %USERPROFILE%\pi-gui && node server.mjs"
+schtasks /create /tn pi-piper /sc onlogon /tr "cmd /c cd /d %USERPROFILE%\pi-piper && node server.mjs"
 ```
 
 Stop with `Ctrl+C` in the server terminal (that also kills all child `pi`
@@ -144,7 +142,7 @@ taskkill /PID <pid> /F
 - **Double-click a tab** to rename it (persisted via `set_session_name`).
 - **✕** closes a tab (kills that pi process). Background sessions keep running;
   a pulsing dot shows when they're mid-turn.
-- **Recent projects** persist in `~/pi-gui/projects.json` and appear in the picker.
+- **Recent projects** persist in `~/pi-piper/projects.json` and appear in the picker.
 - Click the **folder pill** in the header to open the project picker (folder
   browser with parent navigation + ⌂ home).
 
