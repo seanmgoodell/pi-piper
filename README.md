@@ -151,8 +151,9 @@ auto-compaction toggle.
 
 ### Attachments
 - **📎** button, paste, or drag-and-drop.
-- Images (png/jpg/gif/webp, ≤10MB) go to the model natively — vision models only
-  (a warning appears if the current model can't see).
+- Images (png/jpg/gif/webp, ≤10MB) go to the model natively — vision models only.
+  Attaching to a text-only model warns immediately, and sending is blocked with a
+  hint to switch to a vision model (input and attachments are kept).
 - Text/code files (≤100KB, common extensions) are inlined into the prompt.
 
 ### Notifications

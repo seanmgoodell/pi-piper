@@ -1405,9 +1405,13 @@ function showRetryBar(errMsg) {
     <button id="rbRetry">↻ Retry last message</button>
     <button id="rbStop">■ Stop retrying</button>`;
   bar.classList.add("show");
-  bar.querySelector("#rbRetry").onclick = () => {
+  bar.querySelector("#rbRetry").onclick = async () => {
     const s = active();
-    if (typeof s?.lastUser === "string" && s.lastUser) { hideRetryBar(); doSend(s.lastUser, true); }
+    if (typeof s?.lastUser === "string" && s.lastUser) {
+      const sent = await doSend(s.lastUser, true);
+      // keep the bar visible on a blocked retry so it can be retried after switching models
+      if (sent) hideRetryBar();
+    }
     else toast("no previous message to retry", "warn");
   };
   bar.querySelector("#rbStop").onclick = async () => {
@@ -1446,16 +1450,16 @@ $("stopbtn").onclick = () => { const s = active(); if (s?.isStreaming) send({ ty
 
 async function doSend(raw, isRetry = false) {
   const s = active();
-  if (!s) return;
+  if (!s) return false;
   const text = raw.trim();
-  if (!text) return;
+  if (!text) return false;
 
   if (text.startsWith("!")) {
     const cmdStr = text.slice(1).trim();
-    if (!cmdStr) return;
+    if (!cmdStr) return false;
     input.value = ""; autosize(); closeSlash();
     await runBash(cmdStr);
-    return;
+    return true;
   }
 
   // pi's prompt command takes a plain string message; images go in a separate `images` field
@@ -1469,11 +1473,13 @@ async function doSend(raw, isRetry = false) {
     for (const im of s.lastImages) images.push(im);
   }
 
-  if (!s.piAlive) { toast("pi process is down — restart first", "warn"); return; }
+  if (!s.piAlive) { toast("pi process is down — restart first", "warn"); return false; }
 
-  if (attachments.some(a => a.kind === "image")) {
-    const m = models.find(x => x.provider === modelSel.value.split("::")[0] && x.id === modelSel.value.split("::")[1]);
-    if (m && !m.input?.includes("image")) toast("this model may not accept images", "warn");
+  // hard block: don't send images to a model that can't see them
+  if (images.length && !modelAcceptsImages(activeModel())) {
+    const vision = models.find(x => Array.isArray(x.input) && x.input.includes("image"));
+    toast(`${activeModel().name || activeModel().id} can't see images — switch to a vision model${vision ? ` (e.g. ${vision.name || vision.id})` : ""} or remove the images`, "error");
+    return false; // input and attachments are kept so the user can switch models and re-send
   }
 
   input.value = ""; autosize(); closeSlash();
@@ -1502,6 +1508,7 @@ async function doSend(raw, isRetry = false) {
     renderQueue();
     setActivity(s.isStreaming ? "Working… (message queued)" : "Ready", s.isStreaming);
   }
+  return true;
 }
 
 // ================= attachments =================
@@ -1531,6 +1538,8 @@ function clearAttachments() { attachments = []; renderAttachments(); }
 function addFile(f) {
   if (f.size > MAX_IMAGE) { toast(`too big: ${f.name} (${(f.size/1048576).toFixed(1)}MB)`, "warn"); return; }
   const isImage = IMG_TYPES.includes(f.type);
+  if (isImage && !attachments.some(a => a.kind === "image") && !modelAcceptsImages(activeModel()))
+    toast(`heads-up: ${activeModel().name || activeModel().id} can't see images — switching models before sending`, "warn");
   const looksText = !isImage && (f.type.startsWith("text/") || f.type === "" || TEXT_EXT.test(f.name));
   if (!isImage && !looksText) { toast(`skipped: ${f.name} (unsupported type)`, "warn"); return; }
   const reader = new FileReader();
@@ -1577,6 +1586,14 @@ document.addEventListener("drop", (e) => {
 // ================= state / model =================
 const modelSel = $("model");
 const thinkingSel = $("thinking");
+function activeModel() {
+  const [pid, mid] = modelSel.value.split("::");
+  return models.find(x => x.provider === pid && x.id === mid) || null;
+}
+// fail open: allow sends unless we positively know the model can't see images
+function modelAcceptsImages(m) {
+  return !m || !Array.isArray(m.input) || m.input.includes("image");
+}
 function refreshState() {
   const s = active(); if (!s) return;
   send({ type: "get_state" }, 15000, s.sid).then((r) => {
