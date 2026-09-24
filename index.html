@@ -702,13 +702,17 @@ function onBackground(sess, rec) {
 }
 async function send(command, timeoutMs = 60000, sid) {
   const s = sid || activeSid;
-  const res = await fetch("/api/command", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sid: s, command, timeoutMs }),
-  });
-  let body = null;
-  try { body = await res.json(); } catch {}
-  return { ok: res.ok, ...(body || {}) };
+  try {
+    const res = await fetch("/api/command", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sid: s, command, timeoutMs }),
+    });
+    let body = null;
+    try { body = await res.json(); } catch {}
+    return { ok: res.ok, ...(body || {}) };
+  } catch (e) {
+    return { ok: false, success: false, error: e.message };
+  }
 }
 
 // ================= tabs =================
@@ -1086,17 +1090,16 @@ function scheduleStreamRender() {
     stream.renderT = null;
     if (!stream) return;
     if (stream.thinkEl) stream.thinkEl.querySelector(".inner").textContent = stream.thinkBuf;
-    let html = "";
-    if (stream.textSeg) html += `<div>${md(stream.textSeg.textContent)}</div>`;
-    if (stream.textBuf) html += `<div>${md(stream.textBuf)}</div>`;
-    if (stream.placeholder && !html) {
-      if (!stream.body.hasChildNodes() || stream.body.lastChild?.className === "md-placeholder") {
-        stream.body.innerHTML = `<span class="md-placeholder" style="color:var(--dimmer);font-style:italic">…</span>`;
-      }
+    if (stream.textSeg) {
+      stream.textSeg.innerHTML = md(stream.textBuf);
+      stream.placeholder = false;
+    }
+    // drop the placeholder once real content exists
+    stream.body.querySelector(".md-placeholder")?.remove();
+    if (!stream.body.hasChildNodes()) {
+      stream.body.innerHTML = `<span class="md-placeholder" style="color:var(--dimmer);font-style:italic">…</span>`;
       return;
     }
-    stream.placeholder = false;
-    stream.body.innerHTML = html;
     scrollToBottom();
   }, 120);
 }
@@ -1161,11 +1164,9 @@ function onEvent(rec) {
       $("stopbtn").classList.add("show");
       break;
     case "agent_end":
-      s.isStreaming = false; renderTabs();
-      $("stopbtn").classList.remove("show");
-      hideRetryBar();
-      setActivity("Ready", false);
-      refreshCtx();
+      // one low-level run finished; retries/steering/compaction may still follow —
+      // agent_settled is the authoritative idle signal (handled separately below)
+      setActivity("Finishing up…", true);
       break;
     case "agent_settled":
       s.isStreaming = false; renderTabs();
@@ -1186,8 +1187,7 @@ function onEvent(rec) {
     case "message_start":
       if (rec.message?.role === "user") {
         if (s.queue.length) { const [chip] = s.queue.splice(0, 1); chip.remove(); renderQueue(); }
-        userMsg(rec.message.content, s.pendingBashCmd || null);
-        s.pendingBashCmd = null;
+        userMsg(rec.message.content);
         scrollToBottom();
       } else if (rec.message?.role === "assistant") {
         ensureStream();
@@ -1214,8 +1214,9 @@ function onEvent(rec) {
       const m = rec.message;
       if (m?.role === "assistant") {
         if (stream) {
+          const { body } = stream;
           endStream();
-          renderAssistantFinal(stream.body, m.content);
+          renderAssistantFinal(body, m.content);
         } else {
           const { body } = assistantContainer();
           renderAssistantFinal(body, m.content);
@@ -1231,7 +1232,7 @@ function onEvent(rec) {
     }
     case "tool_execution_start": {
       const st = ensureStream();
-      if (st.body.lastChild?.classList?.contains("md-placeholder")) st.body.innerHTML = "";
+      st.body.querySelector(".md-placeholder")?.remove();
       const row = makeToolRow(rec.toolCallId, rec.toolName, rec.args, "running");
       st.body.appendChild(row);
       setActivity(`Using ${rec.toolName}…`, true);
@@ -1246,7 +1247,7 @@ function onEvent(rec) {
       break;
     }
     case "bash_execution_update": {
-      const r = bashCurrent;
+      const r = s.bash;
       if (r && rec.id === r.id) {
         r.el.querySelector("pre").textContent += (rec.delta || "");
         r.el.querySelector("pre").scrollTop = 1e9;
@@ -1254,9 +1255,6 @@ function onEvent(rec) {
       }
       break;
     }
-    case "queue_update":
-      if (Array.isArray(rec.queue)) { s.queueEcho = rec.queue; }
-      break;
     case "compaction_start":
       setActivity("Compacting context…", true);
       break;
@@ -1304,19 +1302,17 @@ function onEvent(rec) {
 }
 
 // ================= bash mode =================
-let bashCurrent = null; // {id, el}
 async function runBash(cmdStr) {
   const s = active(); if (!s) return;
   if (!s.piAlive) { toast("pi process is down — restart first", "warn"); return; }
   userMsg(null, cmdStr);
   const r = bashResBlock();
   const id = "b" + Date.now();
-  bashCurrent = { id, el: r };
+  s.bash = { id, el: r }; // per-session: parallel tabs no longer clobber each other
   setActivity(`Running: ${cmdStr.slice(0, 60)}…`, true);
-  const p = send({ type: "bash", command: cmdStr, id }, 600000, s.sid);
-  p.then((rec) => {
-    if (bashCurrent?.id !== id) return;
-    bashCurrent = null;
+  send({ type: "bash", command: cmdStr, id }, 600000, s.sid).then((rec) => {
+    if (s.bash?.id !== id) return;
+    s.bash = null;
     const exit = r.querySelector(".exit");
     if (rec.success) {
       const out = rec.data || {};
@@ -1329,7 +1325,7 @@ async function runBash(cmdStr) {
       exit.textContent = "error: " + (rec.error || "unknown");
       exit.className = "exit bad";
     }
-    setActivity(s.isStreaming ? "Working…" : "Ready", s.isStreaming);
+    if (s.sid === activeSid) setActivity(s.isStreaming ? "Working…" : "Ready", s.isStreaming);
     scrollToBottom(true);
   });
 }
@@ -1338,9 +1334,7 @@ async function runBash(cmdStr) {
 let slashItems = [], slashIdx = 0, slashOpen = false;
 function slashVisible() {
   const v = input.value;
-  if (!v.startsWith("/") || v.includes("\n") || v.includes("  ")) return false;
-  const first = v.slice(1).split(/\s+/)[0];
-  return !first.includes(" ");
+  return v.startsWith("/") && !v.includes("\n") && !v.includes("  ");
 }
 async function getCommands(s) {
   if (s.cmdCache) return s.cmdCache;
@@ -1413,7 +1407,7 @@ function showRetryBar(errMsg) {
   bar.classList.add("show");
   bar.querySelector("#rbRetry").onclick = () => {
     const s = active();
-    if (s?.lastUser) { hideRetryBar(); doSend(s.lastUser, true); }
+    if (typeof s?.lastUser === "string" && s.lastUser) { hideRetryBar(); doSend(s.lastUser, true); }
     else toast("no previous message to retry", "warn");
   };
   bar.querySelector("#rbStop").onclick = async () => {
@@ -1460,19 +1454,20 @@ async function doSend(raw, isRetry = false) {
     const cmdStr = text.slice(1).trim();
     if (!cmdStr) return;
     input.value = ""; autosize(); closeSlash();
-    s.pendingBashCmd = cmdStr;
     await runBash(cmdStr);
     return;
   }
 
-  // build content
-  const content = [];
+  // pi's prompt command takes a plain string message; images go in a separate `images` field
+  let msg = text;
+  const images = [];
   for (const a of attachments) {
-    if (a.kind === "image") content.push({ type: "image", data: a.data, mimeType: a.mimeType, name: a.name });
-    else content.push({ type: "text", text: `--- attached file: ${a.name} ---\n${a.text}\n--- end of ${a.name} ---` });
+    if (a.kind === "image") images.push({ type: "image", data: a.data, mimeType: a.mimeType });
+    else msg = (msg ? msg + "\n\n" : "") + `--- attached file: ${a.name} ---\n${a.text}\n--- end of ${a.name} ---`;
   }
-  if (text) content.push({ type: "text", text });
-  const msg = content.length === 1 && content[0].type === "text" ? content[0].text : content;
+  if (isRetry && Array.isArray(s.lastImages) && s.lastImages.length) {
+    for (const im of s.lastImages) images.push(im);
+  }
 
   if (!s.piAlive) { toast("pi process is down — restart first", "warn"); return; }
 
@@ -1483,9 +1478,11 @@ async function doSend(raw, isRetry = false) {
 
   input.value = ""; autosize(); closeSlash();
   s.lastUser = msg;
+  s.lastImages = images;
   clearAttachments();
 
   const cmd = { type: "prompt", message: msg };
+  if (images.length) cmd.images = images;
   let queued = false;
   if (s.isStreaming && !isRetry) {
     cmd.streamingBehavior = queueMode;
@@ -1629,10 +1626,11 @@ async function loadModels() {
   }
   refreshState();
 }
-modelSel.onchange = () => {
+modelSel.onchange = async () => {
   const [pid, mid] = modelSel.value.split("::");
-  send({ type: "set_model", provider: pid, model: mid }, 15000);
-  toast("model → " + modelSel.selectedOptions[0]?.textContent);
+  const r = await send({ type: "set_model", provider: pid, modelId: mid }, 15000);
+  if (r.success) toast("model → " + (modelSel.selectedOptions[0]?.textContent || mid));
+  else { toast("model switch failed: " + (r.error || "unknown"), "error"); refreshState(); }
 };
 thinkingSel.onchange = () => {
   send({ type: "set_thinking_level", level: thinkingSel.value }, 15000);
@@ -1701,7 +1699,7 @@ async function browse(p) {
     const sec = document.createElement("div"); sec.className = "sec"; sec.textContent = "recent";
     list.appendChild(sec);
     for (const rp of d.recent) {
-      const row = mkRow(baseName(rp) + "  <span style='color:var(--dimmer)'>" + rp + "</span>", "recent", true);
+      const row = mkRow(esc(baseName(rp)) + "  <span style='color:var(--dimmer)'>" + esc(rp) + "</span>", "recent", true);
       row.onclick = () => browse(rp);
       list.appendChild(row);
     }
@@ -1759,7 +1757,7 @@ $("bannerBtn").onclick = async () => {
 async function init() {
   try { homePath = (await fetch("/api/info").then(r => r.json())).home || homePath; } catch {}
   thinkingSel.innerHTML = "";
-  for (const [v, l] of [["off", "no thinking"], ["minimal", "minimal"], ["low", "low"], ["medium", "medium"], ["high", "high"], ["xhigh", "xhigh"]]) {
+  for (const [v, l] of [["off", "no thinking"], ["minimal", "minimal"], ["low", "low"], ["medium", "medium"], ["high", "high"], ["xhigh", "xhigh"], ["max", "max"]]) {
     const o = document.createElement("option");
     o.value = v; o.textContent = l;
     thinkingSel.appendChild(o);
