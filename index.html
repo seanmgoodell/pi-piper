@@ -1669,6 +1669,7 @@ function applyState(st) {
     modelSel.value = key;
   }
   if (st.thinkingLevel) thinkingSel.value = st.thinkingLevel;
+  if (st.autoCompactionEnabled != null) autoCpt = st.autoCompactionEnabled;
   $("sessionInfo").textContent = st.sessionFile ? st.sessionFile.split("/").pop() : "";
   if (st.isStreaming != null) {
     active().isStreaming = st.isStreaming;
