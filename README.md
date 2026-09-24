@@ -173,8 +173,21 @@ macOS native notification when a turn finishes or pi exits (`PI_GUI_NOTIFY=0` of
 | `GET /api/dirs?path=...` | directory listing for the picker |
 | `GET /api/file?path=...` | file preview for the peek drawer |
 
+## Tests
+
+```sh
+node test/smoke.mjs
+```
+
+Zero-dependency smoke suite. It runs `server.mjs` against a stub `pi`
+(`test/stub-pi.mjs`) that speaks the RPC protocol, so it covers the HTTP/SSE
+surface, session lifecycle (restart races, stdin-EPIPE survival, graceful
+shutdown), the Host-header check, and `index.html` script syntax — without any
+LLM calls.
+
 ## Notes
-- Local-only: binds `127.0.0.1`, no auth — don't port-forward it.
+- Local-only: binds `127.0.0.1`, rejects non-loopback `Host` headers
+  (DNS-rebinding mitigation), no auth — don't port-forward it.
 - Model/thinking-level selectors are per-session; switching tabs updates them
   to that session's state.
 - The UI has no CDN dependencies — works fully offline.

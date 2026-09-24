@@ -1,3 +1,7 @@
 # local state
 projects.json
 *.log
+
+# local scratch / infra notes not part of the GUI
+main.bicep
+TRAVEL-TAILSCALE.md
