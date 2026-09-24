@@ -362,6 +362,20 @@
   }
   #ctxpop .actions button:hover { border-color: var(--accent-dim); }
 
+  #qpop {
+    display: none; position: absolute; right: 16px; bottom: 44px; width: 360px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 -8px 30px #000a; padding: 14px; z-index: 30; font-size: 12.5px;
+  }
+  #qpop.show { display: block; }
+  #qpop .qline { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 9px 0; color: var(--dim); }
+  #qpop .qline button {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 7px; padding: 4px 10px; font-size: 12px; cursor: pointer; margin-left: 6px;
+  }
+  #qpop .qline button.on { background: var(--accent); border-color: var(--accent); color: #171512; font-weight: 600; }
+  #qpop .qline button:hover { border-color: var(--accent-dim); }
+
   #stopbtn {
     display: none; background: var(--panel2); border: 1px solid var(--border); color: var(--dim);
     border-radius: 8px; padding: 5px 12px; font-size: 12.5px; cursor: pointer;
@@ -444,6 +458,7 @@
 <footer>
   <div id="slashmenu"></div>
   <div id="ctxpop"></div>
+  <div id="qpop"></div>
   <div class="foot-inner">
     <div id="retrybar"></div>
     <div class="inputbox">
@@ -836,7 +851,7 @@ async function switchTo(sid) {
   activeSid = sid;
   const s = active();
   stream = null;
-  hideRetryBar(); hideCtxPop(); closeSlash();
+  hideRetryBar(); hideCtxPop(); hideQPop(); closeSlash();
   renderTabs(); updatePill();
   if (renderedSid !== sid) {
     setActivity("Loading…", false);
@@ -1073,6 +1088,7 @@ async function refreshCtx() {
 function hideCtxPop() { $("ctxpop").classList.remove("show"); }
 $("ctx").onclick = (e) => {
   e.stopPropagation();
+  hideQPop();
   const pop = $("ctxpop");
   if (pop.classList.contains("show")) { hideCtxPop(); return; }
   const st = active()?.stats;
@@ -1113,6 +1129,7 @@ async function toggleAutoCpt() {
 }
 document.addEventListener("click", (e) => {
   if (!e.target.closest("#ctxpop") && !e.target.closest("#ctx")) hideCtxPop();
+  if (!e.target.closest("#qpop") && !e.target.closest("#qmode")) hideQPop();
 });
 
 // ================= streaming =================
@@ -1477,10 +1494,51 @@ function showRetryBar(errMsg) {
     if (r.success) { hideRetryBar(); toast("retries stopped"); }
   };
 }
-$("qmode").onclick = () => {
-  queueMode = queueMode === "steer" ? "followUp" : "steer";
-  $("qmode").textContent = queueMode === "steer" ? "➜ steer" : "➜ queue";
-  toast("mid-run messages will " + (queueMode === "steer" ? "steer (inject before next LLM call)" : "queue (wait until pi stops)"));
+function hideQPop() { $("qpop").classList.remove("show"); }
+function qLine(label, opts, cur, onPick) {
+  const row = document.createElement("div");
+  row.className = "qline";
+  const lbl = document.createElement("span"); lbl.textContent = label;
+  row.appendChild(lbl);
+  const right = document.createElement("span");
+  for (const o of opts) {
+    const b = document.createElement("button");
+    b.textContent = o;
+    if (o === cur) b.classList.add("on");
+    b.onclick = () => onPick(o);
+    right.appendChild(b);
+  }
+  row.appendChild(right);
+  $("qpop").appendChild(row);
+}
+function renderQPop() {
+  const s = active();
+  $("qpop").innerHTML = "";
+  qLine("mid-run sends", ["steer", "queue"], queueMode === "steer" ? "steer" : "queue", (o) => {
+    queueMode = o === "steer" ? "steer" : "followUp";
+    $("qmode").textContent = queueMode === "steer" ? "➜ steer" : "➜ queue";
+    toast("mid-run messages will " + (queueMode === "steer" ? "steer (inject before next LLM call)" : "queue (wait until pi stops)"));
+    renderQPop();
+  });
+  qLine("steering delivery", ["all", "one-at-a-time"], s?.qSteering || "one-at-a-time", async (o) => {
+    const r = await send({ type: "set_steering_mode", mode: o }, 15000);
+    if (r.success) { s.qSteering = o; toast("steering delivery → " + o); }
+    else toast("steering mode failed: " + (r.error || "unknown"), "error");
+    renderQPop();
+  });
+  qLine("follow-up delivery", ["all", "one-at-a-time"], s?.qFollowUp || "one-at-a-time", async (o) => {
+    const r = await send({ type: "set_follow_up_mode", mode: o }, 15000);
+    if (r.success) { s.qFollowUp = o; toast("follow-up delivery → " + o); }
+    else toast("follow-up mode failed: " + (r.error || "unknown"), "error");
+    renderQPop();
+  });
+  $("qpop").classList.add("show");
+}
+$("qmode").onclick = (e) => {
+  e.stopPropagation();
+  if ($("qpop").classList.contains("show")) { hideQPop(); return; }
+  hideCtxPop();
+  renderQPop();
 };
 
 // ================= send =================
@@ -1683,6 +1741,11 @@ function applyState(st) {
   }
   if (st.thinkingLevel) thinkingSel.value = st.thinkingLevel;
   if (st.autoCompactionEnabled != null) autoCpt = st.autoCompactionEnabled;
+  const sForQ = active();
+  if (sForQ) {
+    if (st.steeringMode) sForQ.qSteering = st.steeringMode;
+    if (st.followUpMode) sForQ.qFollowUp = st.followUpMode;
+  }
   $("sessionInfo").textContent = st.sessionFile ? st.sessionFile.split("/").pop() : "";
   if (st.isStreaming != null) {
     active().isStreaming = st.isStreaming;
