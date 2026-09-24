@@ -1086,6 +1086,29 @@ async function refreshCtx() {
   $("ctxtext").textContent = `ctx ${pct}%`;
 }
 function hideCtxPop() { $("ctxpop").classList.remove("show"); }
+async function doExportHtml() {
+  const s = active(); if (!s) return;
+  hideCtxPop();
+  const r = await send({ type: "export_html" }, 60000, s.sid);
+  if (!r.success) { toast("export failed: " + (r.error || "unknown"), "error"); return; }
+  const path = r.data?.path;
+  toast("transcript exported" + (path ? " — " + baseName(path) : ""));
+  if (!path) return;
+  try {
+    // fetch the file through the local server and trigger a browser download
+    const res = await fetch("/api/file?path=" + encodeURIComponent(path));
+    const d = await res.json();
+    if (!res.ok || typeof d.content !== "string") return;
+    const blob = new Blob([d.content], { type: "text/html" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = baseName(path) || "pi-session.html";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  } catch { /* the file is on disk either way — download is a bonus */ }
+}
 $("ctx").onclick = (e) => {
   e.stopPropagation();
   hideQPop();
@@ -1103,10 +1126,12 @@ $("ctx").onclick = (e) => {
     <div class="actions">
       <button id="doCompact">⟲ Compact now</button>
       <button id="toggleCpt">auto-compaction: ${autoCpt ? "on" : "off"}</button>
+      <button id="doExport">⤓ Export HTML</button>
     </div>`;
   pop.classList.add("show");
   pop.querySelector("#doCompact").onclick = () => doCompact();
   pop.querySelector("#toggleCpt").onclick = () => toggleAutoCpt();
+  pop.querySelector("#doExport").onclick = () => doExportHtml();
 };
 let autoCpt = true;
 async function doCompact() {
