@@ -1281,7 +1281,7 @@ function onEvent(rec) {
       if (slashOpen) updateSlash();
       break;
     case "get_state_response":
-      if (rec.data?.state) applyState(rec.data.state);
+      if (rec.data) applyState(rec.data);
       break;
     case "get_messages_response":
       break;
@@ -1472,7 +1472,7 @@ async function doSend(raw, isRetry = false) {
   if (!s.piAlive) { toast("pi process is down — restart first", "warn"); return; }
 
   if (attachments.some(a => a.kind === "image")) {
-    const m = models.find(x => x.providerId === modelSel.value.split("::")[0] && x.modelId === modelSel.value.split("::")[1]);
+    const m = models.find(x => x.provider === modelSel.value.split("::")[0] && x.id === modelSel.value.split("::")[1]);
     if (m && !m.input?.includes("image")) toast("this model may not accept images", "warn");
   }
 
@@ -1580,15 +1580,15 @@ const thinkingSel = $("thinking");
 function refreshState() {
   const s = active(); if (!s) return;
   send({ type: "get_state" }, 15000, s.sid).then((r) => {
-    if (r.success && r.data?.state && s.sid === activeSid) applyState(r.data.state);
+    if (r.success && r.data && s.sid === activeSid) applyState(r.data);
   });
 }
 function applyState(st) {
   if (st.model) {
-    const key = st.model.providerId + "::" + st.model.id;
+    const key = st.model.provider + "::" + st.model.id;
     if (![...modelSel.options].some(o => o.value === key)) {
       const o = document.createElement("option");
-      o.value = key; o.textContent = `${st.model.providerId} · ${st.model.name || st.model.id}`;
+      o.value = key; o.textContent = `${st.model.provider} · ${st.model.name || st.model.id}`;
       modelSel.appendChild(o);
     }
     modelSel.value = key;
@@ -1610,8 +1610,8 @@ async function loadModels() {
   modelSel.innerHTML = "";
   const byProvider = new Map();
   for (const m of models) {
-    if (!byProvider.has(m.providerId)) byProvider.set(m.providerId, []);
-    byProvider.get(m.providerId).push(m);
+    if (!byProvider.has(m.provider)) byProvider.set(m.provider, []);
+    byProvider.get(m.provider).push(m);
   }
   for (const [pid, ms] of [...byProvider.entries()].sort()) {
     const g = document.createElement("optgroup");

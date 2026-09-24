@@ -87,10 +87,10 @@ function handle(cmd) {
       respond(cmd, true, { output: `stub:${cmd.command}\n`, exitCode: 0, cancelled: false, truncated: false });
       break;
     case "get_state":
-      respond(cmd, true, { state: { model: { providerId: "stub", id: "stub-model", name: "Stub Model" }, thinkingLevel: "low", sessionFile: "/tmp/stub-session.jsonl", isStreaming: false } });
+      respond(cmd, true, { model: { id: "stub-model", name: "Stub Model", provider: "stub", input: ["text"] }, thinkingLevel: "low", sessionFile: "/tmp/stub-session.jsonl", isStreaming: false });
       break;
     case "get_available_models":
-      respond(cmd, true, { models: [{ providerId: "stub", id: "stub-model", name: "Stub Model", input: ["text"] }] });
+      respond(cmd, true, { models: [{ id: "stub-model", name: "Stub Model", provider: "stub", input: ["text"] }] });
       break;
     case "get_messages":
       respond(cmd, true, { messages: [] });
@@ -102,8 +102,8 @@ function handle(cmd) {
       respond(cmd, true, { commands: [{ name: "help", description: "stub command", source: "pi" }] });
       break;
     case "set_model":
-      // same contract as the real pi: the key is modelId, not model
-      if (cmd.modelId != null) respond(cmd, true, { model: { providerId: cmd.provider, id: cmd.modelId, name: cmd.modelId } });
+      // same contract as the real pi: the key is modelId, and model objects use `provider`
+      if (cmd.modelId != null) respond(cmd, true, { model: { id: cmd.modelId, name: cmd.modelId, provider: cmd.provider, input: ["text"] } });
       else respond(cmd, false, undefined, "Model not found: " + cmd.provider + "/undefined");
       break;
     default:
