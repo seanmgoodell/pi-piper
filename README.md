@@ -148,8 +148,8 @@ On a failed turn an error bar appears: **Retry** (resends the last prompt),
 
 ### Context gauge
 Footer shows context usage (tokens / window, %) and cost, refreshed after each
-turn and compaction. Popover offers **Compact now** (`compact`) and an
-auto-compaction toggle.
+turn and compaction. Popover offers **Export HTML** (`export_html`, downloads the
+saved transcript), **Compact now** (`compact`) and an auto-compaction toggle.
 
 ### Attachments
 - **📎** button, paste, or drag-and-drop.
@@ -174,7 +174,8 @@ macOS native notification when a turn finishes or pi exits (`PI_GUI_NOTIFY=0` of
 | `GET /api/events?sid=X` | SSE stream of all records for that session |
 | `POST /api/command` `{sid, command, timeoutMs?}` | forward one RPC command |
 | `GET /api/dirs?path=...` | directory listing for the picker |
-| `GET /api/file?path=...` | file preview for the peek drawer |
+| `GET /api/file?path=...` | file preview for the peek drawer (≤1MB, first 800 lines) |
+| `GET /api/download?path=...` | raw full-file transfer (Export HTML) |
 
 ## Tests
 
@@ -196,8 +197,8 @@ node test/e2e-real.mjs
 ```
 
 It drives a full conversation through the server: tool use, bash mode,
-history, stats, steering modes, export_html, a restart with conversation
-continuity + memory check, and a vision model round-trip.
+history, stats, steering modes, export_html (full-file download), a restart with
+conversation continuity + memory check, and a vision model round-trip.
 
 ## Notes
 - Local-only: binds `127.0.0.1`, rejects non-loopback `Host` headers

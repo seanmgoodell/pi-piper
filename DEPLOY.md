@@ -57,7 +57,7 @@ session list lives in `~/pi-gui/sessions.json`).
 ## 6. Verify the install (optional, no LLM calls)
 
 ```sh
-node test/smoke.mjs       # expects: 29/29 checks passed
+node test/smoke.mjs       # expects: 35/35 checks passed
 ```
 
 ## 7. Start at login (optional)

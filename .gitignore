@@ -2,6 +2,7 @@
 projects.json
 sessions.json
 *.log
+pi-session-*.html
 
 # local scratch / infra notes not part of the GUI
 main.bicep

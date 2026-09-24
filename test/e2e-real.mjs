@@ -8,7 +8,7 @@
 // changes, model config changes, or pi upgrades. Set PI_GUI_E2E_PORT to
 // override the port (default 47751).
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import http from "node:http";
@@ -93,8 +93,11 @@ try {
   const exAbs = exPath && !exPath.startsWith("/") ? join(tmp, exPath) : exPath; // session-cwd resolution, like the UI
   let exContent = null;
   if (exAbs && existsSync(exAbs)) { try { exContent = readFileSync(exAbs, "utf8"); } catch {} }
-  const exViaApi = exAbs ? await req("GET", `/api/file?path=${encodeURIComponent(exAbs)}`) : null;
-  check("11. export_html: file written + retrievable via /api/file (UI download path)", ex.json?.success === true && !!exContent && exContent.includes("<!DOCTYPE html>") && exViaApi?.status === 200, `path=${exPath} apiStatus=${exViaApi?.status}`);
+  const exStat = exAbs && existsSync(exAbs) ? statSync(exAbs) : null;
+  // the UI downloads through /api/download; asserting only that /api/file returned 200 with a
+  // doctype hid the bug, because the 800-line preview cap keeps the doctype and drops <body>
+  const exViaApi = exAbs ? await req("GET", `/api/download?path=${encodeURIComponent(exAbs)}`) : null;
+  check("11. export_html: full export downloaded byte-for-byte via /api/download", ex.json?.success === true && !!exContent && exContent.includes("<!DOCTYPE html>") && exViaApi?.status === 200 && !!exStat && exStat.size > 0 && Buffer.byteLength(exViaApi.text) === exStat.size && exViaApi.text.includes("<body"), `path=${exPath} apiStatus=${exViaApi?.status} sent=${exViaApi?.text?.length} disk=${exStat?.size}`);
 
   const pidBefore = info.sessions[0].pid;
   const rs = await req("POST", "/api/restart", { body: { sid } });

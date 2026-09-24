@@ -46,7 +46,7 @@ function req(method, path, opts = {}) {
       (res) => {
         let b = "";
         res.on("data", (c) => (b += c));
-        res.on("end", () => { let json = null; try { json = JSON.parse(b); } catch {} resolve_({ status: res.statusCode, json, text: b }); });
+        res.on("end", () => { let json = null; try { json = JSON.parse(b); } catch {} resolve_({ status: res.statusCode, json, text: b, headers: res.headers }); });
       },
     );
     r.on("error", (e) => resolve_({ status: 0, json: null, err: String(e) }));
@@ -192,6 +192,27 @@ async function main() {
   check("file: binary detection", bin.json?.binary === true, JSON.stringify(bin.json));
   const nf = await req("GET", `/api/file?path=${encodeURIComponent(join(tmp, "nope.txt"))}`);
   check("file: missing file → 400", nf.status === 400, `got ${nf.status}`);
+
+  // ---- /api/download: full-file transfer used by Export HTML ----
+  // Regression: the export used to be fetched through /api/file, whose 800-line preview
+  // cap cut a real 440 KB export down to 17 KB — and since pi's export puts <body>
+  // after the ~1100-line CSS preamble, the downloaded copy rendered as a blank page.
+  const bigHtml = "<!DOCTYPE html>\n<html><head><style>\n" + "  .x {}\n".repeat(1200) + "</style></head>\n<body><p>the transcript</p></body></html>\n";
+  const bigPath = join(tmp, "pi-session-big.html");
+  writeFileSync(bigPath, bigHtml);
+  const dl = await req("GET", `/api/download?path=${encodeURIComponent(bigPath)}`);
+  check("download: full file, no 800-line preview truncation", dl.text.length === bigHtml.length && dl.text.includes("<body>"), `sent=${dl.text.length} of ${bigHtml.length}`);
+  check("download: html content-type + attachment disposition", /text\/html/.test(dl.headers?.["content-type"] || "") && /attachment/.test(dl.headers?.["content-disposition"] || ""), JSON.stringify(dl.headers));
+  const huge = "A".repeat(1024 * 1024 + 4096); // > 1MB: /api/file returns empty content here
+  writeFileSync(join(tmp, "huge.html"), huge);
+  const dlHuge = await req("GET", `/api/download?path=${encodeURIComponent(join(tmp, "huge.html"))}`);
+  check("download: > 1MB streams fully (peek cap does not apply)", dlHuge.text.length === huge.length, `sent=${dlHuge.text.length} of ${huge.length}`);
+  const dlMissing = await req("GET", `/api/download?path=${encodeURIComponent(join(tmp, "nope.html"))}`);
+  check("download: missing file → 400 JSON", dlMissing.status === 400 && !!dlMissing.json?.error, `status=${dlMissing.status}`);
+  const dlDir = await req("GET", `/api/download?path=${encodeURIComponent(tmp)}`);
+  check("download: directory → 400 JSON", dlDir.status === 400 && !!dlDir.json?.error, `status=${dlDir.status}`);
+  const preview = await req("GET", `/api/file?path=${encodeURIComponent(bigPath)}`);
+  check("file: peek preview still capped at 800 lines", preview.json?.truncated === true && preview.json.content.length < bigHtml.length, JSON.stringify(preview.json?.truncated));
 
   // ---- session limit ----
   let saw409 = false;

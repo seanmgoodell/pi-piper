@@ -525,7 +525,15 @@ const $ = (id) => document.getElementById(id);
 const chat = $("chat");
 const input = $("input");
 const esc = (s) => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-const baseName = (p) => (p || "").split("/").filter(Boolean).pop() || "/";
+const baseName = (p) => (p || "").split(/[\\/]/).filter(Boolean).pop() || "/";
+// absolute if POSIX root, Windows drive (C:\ or C:/), or UNC share
+const isAbsPath = (p) => /^([/\\]|[A-Za-z]:[\\/])/.test(p || "");
+// pi hands back paths relative to the session cwd (and Windows cwds use backslashes)
+function absFromCwd(p, cwd) {
+  if (isAbsPath(p) || !cwd) return p;
+  const sep = cwd.includes("\\") && !cwd.includes("/") ? "\\" : "/";
+  return cwd.replace(/[\\/]$/, "") + sep + p;
+}
 
 // ================= syntax highlighting =================
 const KW = {
@@ -1097,13 +1105,17 @@ async function doExportHtml() {
   toast("transcript exported" + (path ? " — " + baseName(path) : ""));
   if (!path) return;
   // pi returns a path relative to the session cwd — resolve it like peekFile does
-  const abs = path.startsWith("/") ? path : (s.cwd ? s.cwd.replace(/\/$/, "") + "/" + path : path);
+  const abs = absFromCwd(path, s.cwd);
   try {
-    // fetch the file through the local server and trigger a browser download
-    const res = await fetch("/api/file?path=" + encodeURIComponent(abs));
-    const d = await res.json();
-    if (!res.ok || typeof d.content !== "string") return;
-    const blob = new Blob([d.content], { type: "text/html" });
+    // /api/download streams the whole file; /api/file is a capped preview (≤800 lines/1MB)
+    const res = await fetch("/api/download?path=" + encodeURIComponent(abs));
+    if (!res.ok) {
+      let why = "download failed";
+      try { why = (await res.json()).error || why; } catch { /* non-JSON error body */ }
+      toast(why + " — the export is on disk at " + abs, "error");
+      return;
+    }
+    const blob = await res.blob();
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = baseName(path) || "pi-session.html";
@@ -1827,7 +1839,7 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("filedra
 async function peekFile(path) {
   const s = active();
   const cwd = s?.cwd;
-  const abs = path.startsWith("/") ? path : (cwd ? cwd.replace(/\/$/, "") + "/" + path : path);
+  const abs = absFromCwd(path, cwd);
   const r = await fetch("/api/file?path=" + encodeURIComponent(abs));
   const d = await r.json();
   if (!r.ok) { toast(d.error || "can't open file", "error"); return; }

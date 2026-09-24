@@ -12,6 +12,7 @@
 //   POST /api/command {sid, command, timeoutMs?} -> forward a command, return its response
 //   GET  /api/dirs?path=...          -> directory listing (for the project picker)
 //   GET  /api/file?path=...          -> file preview (for the file peek panel)
+//   GET  /api/download?path=...      -> raw file transfer (Export HTML; no preview caps)
 //   GET  /                         -> the single-file UI
 //
 // Env:
@@ -26,7 +27,7 @@ import http from "node:http";
 import { spawn, execFile } from "node:child_process";
 import {
   readFileSync, writeFileSync, existsSync, readdirSync, statSync,
-  openSync, readSync, closeSync,
+  openSync, readSync, closeSync, createReadStream,
 } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 import { homedir } from "node:os";
@@ -237,6 +238,37 @@ function sendCommand(sess, cmd, timeoutMs) {
 
 // ---------------- file preview ----------------
 
+const MIME = {
+  html: "text/html; charset=utf-8",
+  htm: "text/html; charset=utf-8",
+  json: "application/json",
+  md: "text/plain; charset=utf-8",
+  txt: "text/plain; charset=utf-8",
+};
+function mimeFor(name) {
+  return MIME[(name.split(".").pop() || "").toLowerCase()] || "application/octet-stream";
+}
+
+// Full-file transfer for downloads (Export HTML).
+// Deliberately NOT fileContents(): that one is a preview with caps (< 1MB, first
+// 800 lines) — using it here silently truncated exports, and a real pi export has
+// <body> after the CSS preamble, so the truncated copy rendered as a blank page.
+function streamFile(res, p) {
+  const abs = expand(p);
+  let st;
+  try { st = statSync(abs); } catch { sendJson(res, 400, { error: "no such file: " + p }); return; }
+  if (!st.isFile()) { sendJson(res, 400, { error: "not a file: " + p }); return; }
+  const name = abs.split(/[\\/]/).pop() || "download";
+  res.writeHead(200, {
+    "Content-Type": mimeFor(name),
+    "Content-Length": st.size,
+    "Content-Disposition": `attachment; filename="${name.replace(/[^\x20-\x7e]/g, "_").replace(/"/g, "")}"`,
+  });
+  const rs = createReadStream(abs);
+  rs.on("error", () => { try { res.destroy(); } catch {} }); // e.g. deleted between stat and open
+  rs.pipe(res);
+}
+
 function fileContents(p) {
   const abs = expand(p);
   let st;
@@ -393,6 +425,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && u.pathname === "/api/file") {
       const out = fileContents(u.searchParams.get("path") || "");
       sendJson(res, out.error ? 400 : 200, out);
+      return;
+    }
+
+    if (req.method === "GET" && u.pathname === "/api/download") {
+      streamFile(res, u.searchParams.get("path") || "");
       return;
     }
 
