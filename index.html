@@ -681,6 +681,7 @@ function makeSession(info) {
     sid: info.sid, cwd: info.cwd, name: info.name || null,
     es: null, isStreaming: false, piAlive: info.running,
     queue: [], lastUser: null, cmdCache: null, stats: null,
+    pendingDialogs: [], bashLog: [], streamBuf: { text: "", think: "" },
   };
   sessions.set(info.sid, sess);
   attachEvents(sess);
@@ -699,6 +700,12 @@ function onBackground(sess, rec) {
   if (rec.type === "agent_start") { sess.isStreaming = true; renderTabs(); }
   else if (rec.type === "agent_settled") { sess.isStreaming = false; renderTabs(); }
   else if (rec.type === "pi_exited") { sess.piAlive = false; renderTabs(); }
+  else if (rec.type === "message_start" && rec.message?.role === "assistant") sess.streamBuf = { text: "", think: "" };
+  else if (rec.type === "message_update") {
+    const ev = rec.assistantMessageEvent;
+    if (ev?.type === "thinking_delta") sess.streamBuf.think += ev.delta;
+    else if (ev?.type === "text_delta") sess.streamBuf.text += ev.delta;
+  } else if (rec.type === "message_end" && rec.message?.role === "assistant") sess.streamBuf = { text: "", think: "" };
 }
 async function send(command, timeoutMs = 60000, sid) {
   const s = sid || activeSid;
@@ -803,6 +810,27 @@ function updateTitle() {
 }
 
 // ================= switch session =================
+function rebuildLiveStream(s) {
+  const st = ensureStream();
+  if (s.streamBuf.think) {
+    st.thinkEl = makeThinkEl(true);
+    st.body.appendChild(st.thinkEl);
+    st.thinkBuf = s.streamBuf.think;
+    st.hasThinking = true;
+    st.thinkEl.querySelector(".inner").textContent = st.thinkBuf;
+  }
+  if (s.streamBuf.text) {
+    st.textSeg = document.createElement("div");
+    st.body.appendChild(st.textSeg);
+    st.textBuf = s.streamBuf.text;
+    st.textSeg.innerHTML = md(st.textBuf);
+    st.placeholder = false;
+  }
+  if (!s.streamBuf.text && !s.streamBuf.think) {
+    st.body.innerHTML = `<span class="md-placeholder" style="color:var(--dimmer);font-style:italic">…</span>`;
+  }
+}
+
 async function switchTo(sid) {
   if (sid === activeSid && renderedSid === sid) return;
   activeSid = sid;
@@ -816,7 +844,13 @@ async function switchTo(sid) {
     if (sid !== activeSid) return; // switched away mid-load
     renderAll(msgs.data?.messages || []);
     renderedSid = sid;
+    // replay ephemeral per-session state that isn't part of message history
+    for (const entry of s.bashLog) if (entry.running) { userMsg(null, entry.cmd); bashBlockDom(entry); }
+    for (const req of s.pendingDialogs) buildDialog(req, s);
+    if (s.isStreaming) rebuildLiveStream(s);
+    renderQueue();
     setActivity(s.isStreaming ? "Working…" : "Ready", !!s.isStreaming);
+    scrollToBottom(true);
   }
   refreshState();
   refreshCtx();
@@ -921,11 +955,16 @@ function userMsg(content, bashCmd) {
   chat.appendChild(d);
   return d;
 }
-function bashResBlock() {
+function bashBlockDom(entry) {
   killEmptyState();
   const r = document.createElement("div");
   r.className = "bashres";
-  r.innerHTML = `<pre></pre><div class="exit">running…</div>`;
+  r.innerHTML = `<pre></pre><div class="exit"></div>`;
+  const pre = r.querySelector("pre"), exit = r.querySelector(".exit");
+  pre.textContent = entry.output || "";
+  if (entry.running) exit.textContent = "running…";
+  else { exit.textContent = entry.exitText || ""; exit.className = "exit " + (entry.exitClass || ""); }
+  entry.el = r;
   chat.appendChild(r);
   scrollToBottom();
   return r;
@@ -1110,7 +1149,7 @@ function endStream() {
 }
 
 // ================= extension dialogs =================
-function renderDialog(req) {
+function buildDialog(req, sess) {
   killEmptyState();
   const d = document.createElement("div");
   d.className = "dialog";
@@ -1126,6 +1165,7 @@ function renderDialog(req) {
       const b = document.createElement("button");
       b.textContent = o.label || o;
       b.onclick = () => {
+        sess.pendingDialogs = sess.pendingDialogs.filter((x) => x !== req);
         d.classList.add("answered");
         const a = document.createElement("div"); a.className = "answer";
         a.textContent = "→ " + b.textContent;
@@ -1142,6 +1182,7 @@ function renderDialog(req) {
     go.textContent = "Submit";
     go.style.cssText = "background:var(--accent);border:1px solid var(--accent);color:#171512;font-weight:600;border-radius:7px;padding:5px 14px;cursor:pointer;font-size:13px";
     go.onclick = () => {
+      sess.pendingDialogs = sess.pendingDialogs.filter((x) => x !== req);
       d.classList.add("answered");
       const a = document.createElement("div"); a.className = "answer";
       a.textContent = "→ " + ta.value;
@@ -1153,6 +1194,7 @@ function renderDialog(req) {
   chat.appendChild(d);
   scrollToBottom();
 }
+function renderDialog(req) { buildDialog(req, active()); }
 
 // ================= event dispatch =================
 function onEvent(rec) {
@@ -1190,12 +1232,15 @@ function onEvent(rec) {
         userMsg(rec.message.content);
         scrollToBottom();
       } else if (rec.message?.role === "assistant") {
+        s.streamBuf = { text: "", think: "" };
         ensureStream();
       }
       break;
-    case "message_update":
+    case "message_update": {
+      const ev = rec.assistantMessageEvent;
+      if (ev?.type === "thinking_delta") s.streamBuf.think += ev.delta;
+      else if (ev?.type === "text_delta") s.streamBuf.text += ev.delta;
       if (stream) {
-        const ev = rec.assistantMessageEvent;
         if (ev?.type === "thinking_delta") {
           if (!stream.thinkEl) { stream.thinkEl = makeThinkEl(true); stream.body.appendChild(stream.thinkEl); stream.hasThinking = true; }
           stream.thinkBuf += ev.delta;
@@ -1210,9 +1255,11 @@ function onEvent(rec) {
         }
       }
       break;
+    }
     case "message_end": {
       const m = rec.message;
       if (m?.role === "assistant") {
+        s.streamBuf = { text: "", think: "" };
         if (stream) {
           const { body } = stream;
           endStream();
@@ -1249,8 +1296,11 @@ function onEvent(rec) {
     case "bash_execution_update": {
       const r = s.bash;
       if (r && rec.id === r.id) {
-        r.el.querySelector("pre").textContent += (rec.delta || "");
-        r.el.querySelector("pre").scrollTop = 1e9;
+        r.output += (rec.delta || "");
+        if (r.el?.isConnected) {
+          r.el.querySelector("pre").textContent = r.output;
+          r.el.querySelector("pre").scrollTop = 1e9;
+        }
         scrollToBottom();
       }
       break;
@@ -1306,24 +1356,32 @@ async function runBash(cmdStr) {
   const s = active(); if (!s) return;
   if (!s.piAlive) { toast("pi process is down — restart first", "warn"); return; }
   userMsg(null, cmdStr);
-  const r = bashResBlock();
-  const id = "b" + Date.now();
-  s.bash = { id, el: r }; // per-session: parallel tabs no longer clobber each other
+  const entry = { id: "b" + Date.now(), cmd: cmdStr, output: "", running: true, exitText: "", exitClass: "", el: null };
+  s.bashLog.push(entry);
+  if (s.bashLog.length > 20) s.bashLog.shift();
+  s.bash = entry;
+  bashBlockDom(entry);
   setActivity(`Running: ${cmdStr.slice(0, 60)}…`, true);
-  send({ type: "bash", command: cmdStr, id }, 600000, s.sid).then((rec) => {
-    if (s.bash?.id !== id) return;
+  send({ type: "bash", command: cmdStr, id: entry.id }, 600000, s.sid).then((rec) => {
+    if (s.bash?.id !== entry.id) return;
     s.bash = null;
-    const exit = r.querySelector(".exit");
+    entry.running = false;
     if (rec.success) {
       const out = rec.data || {};
       const final = typeof out.output === "string" ? out.output : JSON.stringify(out, null, 2);
-      r.querySelector("pre").textContent = final || "(no output)";
+      entry.output = final || "(no output)";
       const code = out.exitCode ?? 0;
-      exit.textContent = `exit ${code}${out.truncated ? " · truncated" : ""}${out.cancelled ? " · cancelled" : ""}`;
-      exit.className = "exit " + (code === 0 ? "ok" : "bad");
+      entry.exitText = `exit ${code}${out.truncated ? " · truncated" : ""}${out.cancelled ? " · cancelled" : ""}`;
+      entry.exitClass = code === 0 ? "ok" : "bad";
     } else {
-      exit.textContent = "error: " + (rec.error || "unknown");
-      exit.className = "exit bad";
+      entry.exitText = "error: " + (rec.error || "unknown");
+      entry.exitClass = "bad";
+    }
+    if (entry.el?.isConnected) {
+      entry.el.querySelector("pre").textContent = entry.output;
+      const exit = entry.el.querySelector(".exit");
+      exit.textContent = entry.exitText;
+      exit.className = "exit " + entry.exitClass;
     }
     if (s.sid === activeSid) setActivity(s.isStreaming ? "Working…" : "Ready", s.isStreaming);
     scrollToBottom(true);
