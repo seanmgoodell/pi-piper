@@ -1,8 +1,9 @@
 # pi-gui
 
 A tiny local web GUI for the [pi coding agent](https://github.com/badlogic/pi-mono).
-Zero npm dependencies: plain Node >= 18 + one HTML file. It spawns
-`pi --mode rpc`, bridges JSONL ↔ the browser over HTTP + SSE, and renders a
+Zero npm dependencies: plain Node >= 18 + one HTML file (current pi requires
+Node >= 22.19). It spawns `pi --mode rpc`, bridges JSONL ↔ the browser over
+HTTP + SSE, and renders a
 full chat transcript with streaming, tool calls, thinking blocks, and
 multiple parallel sessions.
 
@@ -29,7 +30,7 @@ Environment:
 ## Setup on a new machine
 
 Works on macOS and Linux (tested targets: macOS + CachyOS/Arch). Three
-requirements: **Node >= 18**, **pi**, and this folder.
+requirements: **Node >= 22.19** (for current pi), **pi**, and this folder.
 
 ### 1. Node
 
@@ -38,21 +39,22 @@ requirements: **Node >= 18**, **pi**, and this folder.
 brew install node
 
 # CachyOS / Arch
-sudo pacman -S nodejs          # or: sudo pacman -S nodejs-lts
+sudo pacman -S --needed nodejs npm git
 ```
 
 ### 2. pi
 
 ```sh
-npm install -g @earendil-works/pi-coding-agent
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 pi --version                   # sanity check
 ```
 
-Your `~/.pi/agent/` config (models, settings, auth) travels with your account —
-the ollama-pro and openai-codex providers work from any machine; the local
-`llamaswap` provider only works where `http://10.0.4.79:8080` is reachable.
+Run `pi`, then `/login` to configure your own model provider. Authentication
+is private to your account (`~/.pi/agent/auth.json`); do not share it.
 
 ### 3. pi-gui
+
+For a single-file transfer without GitLab access, see [DEPLOY.md](DEPLOY.md).
 
 ```sh
 git clone https://gitlab.seanlab.us/homelab/pi-gui.git ~/pi-gui
