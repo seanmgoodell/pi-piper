@@ -1658,6 +1658,18 @@ function refreshState() {
     if (r.success && r.data && s.sid === activeSid) applyState(r.data);
   });
 }
+const THINKING_LEVELS = [["off", "no thinking"], ["minimal", "minimal"], ["low", "low"], ["medium", "medium"], ["high", "high"], ["xhigh", "xhigh"], ["max", "max"]];
+function syncThinkingOptions(model) {
+  const levels = model && model.reasoning === false ? THINKING_LEVELS.filter(([v]) => v === "off") : THINKING_LEVELS;
+  const prev = thinkingSel.value;
+  thinkingSel.innerHTML = "";
+  for (const [v, l] of levels) {
+    const o = document.createElement("option");
+    o.value = v; o.textContent = l;
+    thinkingSel.appendChild(o);
+  }
+  if ([...thinkingSel.options].some((o) => o.value === prev)) thinkingSel.value = prev;
+}
 function applyState(st) {
   if (st.model) {
     const key = st.model.provider + "::" + st.model.id;
@@ -1667,6 +1679,7 @@ function applyState(st) {
       modelSel.appendChild(o);
     }
     modelSel.value = key;
+    syncThinkingOptions(st.model);
   }
   if (st.thinkingLevel) thinkingSel.value = st.thinkingLevel;
   if (st.autoCompactionEnabled != null) autoCpt = st.autoCompactionEnabled;
@@ -1833,12 +1846,7 @@ $("bannerBtn").onclick = async () => {
 // ================= init =================
 async function init() {
   try { homePath = (await fetch("/api/info").then(r => r.json())).home || homePath; } catch {}
-  thinkingSel.innerHTML = "";
-  for (const [v, l] of [["off", "no thinking"], ["minimal", "minimal"], ["low", "low"], ["medium", "medium"], ["high", "high"], ["xhigh", "xhigh"], ["max", "max"]]) {
-    const o = document.createElement("option");
-    o.value = v; o.textContent = l;
-    thinkingSel.appendChild(o);
-  }
+  syncThinkingOptions(null); // full list until a model is known
   const r = await fetch("/api/sessions");
   let list = await r.json();
   if (!list.length) {
