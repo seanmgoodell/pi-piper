@@ -183,8 +183,19 @@ node test/smoke.mjs
 Zero-dependency smoke suite. It runs `server.mjs` against a stub `pi`
 (`test/stub-pi.mjs`) that speaks the RPC protocol, so it covers the HTTP/SSE
 surface, session lifecycle (restart races, stdin-EPIPE survival, graceful
-shutdown), the Host-header check, and `index.html` script syntax — without any
-LLM calls.
+shutdown, `--session` resume, boot restore), the Host-header check, and
+`index.html` script syntax — without any LLM calls.
+
+For a deeper acceptance pass against the real `pi` binary (costs a few LLM
+calls):
+
+```sh
+node test/e2e-real.mjs
+```
+
+It drives a full conversation through the server: tool use, bash mode,
+history, stats, steering modes, export_html, a restart with conversation
+continuity + memory check, and a vision model round-trip.
 
 ## Notes
 - Local-only: binds `127.0.0.1`, rejects non-loopback `Host` headers
