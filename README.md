@@ -29,8 +29,8 @@ Environment:
 
 ## Setup on a new machine
 
-Works on macOS and Linux (tested targets: macOS + CachyOS/Arch). Three
-requirements: **Node >= 22.19** (for current pi), **pi**, and this folder.
+Works on macOS, Linux, and Windows (tested targets: macOS + CachyOS/Arch).
+Three requirements: **Node >= 22.19** (for current pi), **pi**, and this folder.
 
 ### 1. Node
 
@@ -40,6 +40,10 @@ brew install node
 
 # CachyOS / Arch
 sudo pacman -S --needed nodejs npm git
+
+# Windows (PowerShell)
+winget install OpenJS.NodeJS.LTS
+winget install Git.Git
 ```
 
 ### 2. pi
@@ -108,6 +112,30 @@ systemctl --user daemon-reload
 systemctl --user enable --now pi-gui
 ```
 
+**Windows** — drop a small launcher `.bat` into your Startup folder
+(`Win+R` → `shell:startup`):
+
+```bat
+@echo off
+cd /d %USERPROFILE%\pi-gui
+start "" /min node server.mjs
+```
+
+Or register a scheduled task that runs at logon:
+
+```powershell
+schtasks /create /tn pi-gui /sc onlogon /tr "cmd /c cd /d %USERPROFILE%\pi-gui && node server.mjs"
+```
+
+Stop with `Ctrl+C` in the server terminal (that also kills all child `pi`
+processes). To kill a detached instance, find the PID on the port, then kill
+it:
+
+```powershell
+netstat -ano | findstr :4747
+taskkill /PID <pid> /F
+```
+
 ## Features
 
 ### Multiple parallel sessions (tabs)
@@ -159,7 +187,8 @@ saved transcript), **Compact now** (`compact`) and an auto-compaction toggle.
 - Text/code files (≤100KB, common extensions) are inlined into the prompt.
 
 ### Notifications
-macOS native notification when a turn finishes or pi exits (`PI_GUI_NOTIFY=0` off).
+Native notification (macOS `osascript`, Linux `notify-send`) when a turn
+finishes or pi exits (`PI_GUI_NOTIFY=0` off). Not available on Windows.
 
 ## API (server)
 
