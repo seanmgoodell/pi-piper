@@ -103,18 +103,24 @@ function startPi(sess) {
   });
   sess.pi = pi;
 
-  pi.on("error", (e) => broadcast(sess, { type: "pi_spawn_error", error: e.message }));
+  pi.on("error", (e) => {
+    if (sess.pi !== pi) return; // superseded by a restart
+    sess.piAlive = false;
+    broadcast(sess, { type: "pi_spawn_error", error: e.message });
+  });
   pi.on("exit", (code, sig) => {
+    if (sess.pi !== pi) return; // superseded by a restart — ignore the old child's exit
     sess.piAlive = false;
     sess.piExitCode = code;
     failPending(sess, `pi exited (code ${code})`);
     broadcast(sess, { type: "pi_exited", code, signal: sig });
-    notifyMac("pi-gui", `pi exited in ${sess.name || base(sess.cwd)}${code != null ? ` (code ${code})` : ""}`);
+    if (sessions.has(sess.sid)) notifyMac("pi-gui", `pi exited in ${sess.name || base(sess.cwd)}${code != null ? ` (code ${code})` : ""}`);
   });
 
   pi.stdout.setEncoding("utf8");
   let buf = "";
   pi.stdout.on("data", (chunk) => {
+    if (sess.pi !== pi) return; // stale output from a superseded child
     buf += chunk;
     let i;
     while ((i = buf.indexOf("\n")) >= 0) {
@@ -132,7 +138,7 @@ function startPi(sess) {
         if (rec.type === "session_info_changed" && typeof rec.name === "string") {
           sess.name = rec.name || null;
         }
-        if (rec.type === "agent_end" || rec.type === "agent_settled") {
+        if (rec.type === "agent_settled") {
           notifyMac("pi-gui", `Turn complete — ${sess.name || base(sess.cwd)}`);
         }
         broadcast(sess, rec);
@@ -140,15 +146,31 @@ function startPi(sess) {
     }
   });
 
+  pi.stdin.on("error", () => {}); // swallow EPIPE — the child may die between the alive-check and a write
+
   sess.piAlive = true;
 }
 
-function closeSession(sess) {
+// documented orderly shutdown: close stdin so pi can dispose and exit, escalate if it lingers
+function stopPi(sess) {
+  return new Promise((resolve) => {
+    const pi = sess.pi;
+    if (!pi || pi.exitCode !== null) return resolve();
+    let done = false;
+    const finish = () => { if (!done) { done = true; clearTimeout(t1); clearTimeout(t2); resolve(); } };
+    pi.once("exit", finish);
+    try { pi.stdin.end(); } catch {}
+    const t1 = setTimeout(() => { try { pi.kill("SIGTERM"); } catch {} }, 300);
+    const t2 = setTimeout(() => { try { pi.kill("SIGKILL"); } catch {} finish(); }, 2000);
+  });
+}
+
+async function closeSession(sess) {
   for (const res of sess.clients) { try { res.end(); } catch {} }
   sess.clients.clear();
   failPending(sess, "session closed");
-  if (sess.pi) { try { sess.pi.kill("SIGTERM"); } catch {} }
   sessions.delete(sess.sid);
+  await stopPi(sess);
 }
 
 function failPending(sess, msg) {
@@ -156,7 +178,7 @@ function failPending(sess, msg) {
 }
 
 function broadcast(sess, rec) {
-  const line = "data: " + JSON.stringify(rec) + "\n";
+  const line = "data: " + JSON.stringify(rec) + "\n\n";
   for (const res of sess.clients) { try { res.write(line); } catch {} }
 }
 
@@ -210,9 +232,14 @@ function fileContents(p) {
 
 function readBody(req) {
   return new Promise((res, rej) => {
-    let b = "";
-    req.on("data", (c) => { b += c; if (b.length > 50e6) { rej(new Error("body too large")); req.destroy(); } });
-    req.on("end", () => res(b));
+    const chunks = [];
+    let size = 0;
+    req.on("data", (c) => {
+      size += c.length; // byte-accurate (c is a Buffer)
+      if (size > 50e6) { rej(new Error("body too large")); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on("end", () => res(Buffer.concat(chunks).toString("utf8")));
     req.on("error", rej);
   });
 }
@@ -226,6 +253,12 @@ function infoOf(sess) {
 }
 
 const server = http.createServer(async (req, res) => {
+  // DNS-rebinding mitigation: only accept requests addressed to the loopback host
+  const host = (req.headers.host || "").toLowerCase();
+  if (host !== `127.0.0.1:${PORT}` && host !== `localhost:${PORT}` && host !== `[::1]:${PORT}`) {
+    sendJson(res, 403, { error: "bad host" });
+    return;
+  }
   const u = new URL(req.url, "http://localhost");
   try {
     if (req.method === "GET" && u.pathname === "/") {
@@ -255,7 +288,7 @@ const server = http.createServer(async (req, res) => {
       const t = JSON.parse((await readBody(req)) || "{}");
       const sess = sessions.get(t.sid);
       if (!sess) { sendJson(res, 404, { error: "no such session" }); return; }
-      closeSession(sess);
+      await closeSession(sess);
       sendJson(res, 200, { success: true });
       return;
     }
@@ -267,9 +300,9 @@ const server = http.createServer(async (req, res) => {
       if (t.cwd) {
         sess.cwd = expand(t.cwd);
         saveRecent(sess.cwd);
-        for (const r of sess.clients) { try { r.write("data: " + JSON.stringify({ type: "cwd_changed", cwd: sess.cwd }) + "\n"); } catch {} }
+        for (const r of sess.clients) { try { r.write("data: " + JSON.stringify({ type: "cwd_changed", cwd: sess.cwd }) + "\n\n"); } catch {} }
       }
-      try { sess.pi?.kill("SIGTERM"); } catch {}
+      stopPi(sess); // graceful, in the background — supersession guards handle the overlap
       startPi(sess);
       sendJson(res, 200, infoOf(sess));
       return;
@@ -342,5 +375,12 @@ createSession(null, null);
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`pi-gui: http://127.0.0.1:${PORT}  (initial cwd: ${DEFAULT_CWD}, ${sessions.size} session)`);
 });
-process.on("SIGINT", () => { for (const s of sessions.values()) { try { s.pi?.kill("SIGTERM"); } catch {} } process.exit(0); });
-process.on("SIGTERM", () => process.exit(0));
+function killAll() {
+  for (const s of sessions.values()) { try { s.pi?.stdin.end(); } catch {} }
+  setTimeout(() => {
+    for (const s of sessions.values()) { try { s.pi?.kill("SIGKILL"); } catch {} }
+    process.exit(0);
+  }, 400);
+}
+process.on("SIGINT", killAll);
+process.on("SIGTERM", killAll);
