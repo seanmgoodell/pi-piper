@@ -16,6 +16,8 @@ function log(event) {
   try { appendFileSync(LOG, JSON.stringify({ pid: process.pid, event }) + "\n"); } catch {}
 }
 log("start");
+log("argv " + process.argv.slice(2).join(" "));
+const SESSION_FILE = process.env.STUB_SESSION_FILE || null;
 
 if (process.env.STUB_EXIT_DELAY_MS) {
   process.on("SIGTERM", () => {
@@ -87,7 +89,7 @@ function handle(cmd) {
       respond(cmd, true, { output: `stub:${cmd.command}\n`, exitCode: 0, cancelled: false, truncated: false });
       break;
     case "get_state":
-      respond(cmd, true, { model: { id: "stub-model", name: "Stub Model", provider: "stub", input: ["text"] }, thinkingLevel: "low", sessionFile: "/tmp/stub-session.jsonl", isStreaming: false });
+      respond(cmd, true, { model: { id: "stub-model", name: "Stub Model", provider: "stub", input: ["text"] }, thinkingLevel: "low", sessionFile: SESSION_FILE, isStreaming: false });
       break;
     case "get_available_models":
       respond(cmd, true, { models: [{ id: "stub-model", name: "Stub Model", provider: "stub", input: ["text"] }] });

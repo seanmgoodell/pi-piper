@@ -41,6 +41,7 @@ const NOTIFY = process.env.PI_GUI_NOTIFY !== "0" && (process.platform === "darwi
 
 const sessions = new Map(); // sid -> session
 const RECENT_FILE = join(homedir(), "pi-gui", "projects.json");
+const SESSIONS_FILE = process.env.PI_GUI_STATE || join(homedir(), "pi-gui", "sessions.json");
 
 const base = (p) => (p || "").split("/").filter(Boolean).pop() || "/";
 
@@ -54,6 +55,20 @@ function saveRecent(dir) {
   try {
     const arr = [dir, ...loadRecent().filter((p) => p !== dir)].slice(0, 8);
     writeFileSync(RECENT_FILE, JSON.stringify(arr, null, 2) + "\n");
+  } catch {}
+}
+function loadSavedSessions() {
+  try {
+    const arr = JSON.parse(readFileSync(SESSIONS_FILE, "utf8"));
+    return Array.isArray(arr) ? arr.filter((e) => e && typeof e.cwd === "string") : [];
+  } catch { return []; }
+}
+function saveSessions() {
+  try {
+    const arr = [...sessions.values()]
+      .map((s) => ({ cwd: s.cwd, name: s.name, sessionFile: s.sessionFile || null }))
+      .slice(0, MAX_SESSIONS);
+    writeFileSync(SESSIONS_FILE, JSON.stringify(arr, null, 2) + "\n");
   } catch {}
 }
 function expand(p) {
@@ -76,18 +91,20 @@ function notifyMac(title, msg) {
 
 // ---------------- session lifecycle ----------------
 
-function createSession(cwd, name) {
+function createSession(cwd, name, sessionFile) {
   if (sessions.size >= MAX_SESSIONS) return null;
   const sess = {
     sid: makeSid(),
     cwd: cwd ? expand(cwd) : DEFAULT_CWD,
     name: name || null,
+    sessionFile: sessionFile || null,
     pi: null, piAlive: false, piExitCode: null,
     pending: new Map(),
     clients: new Set(),
     createdAt: Date.now(),
   };
   sessions.set(sess.sid, sess);
+  saveSessions();
   if (cwd) saveRecent(sess.cwd);
   startPi(sess);
   return sess;
@@ -96,7 +113,9 @@ function createSession(cwd, name) {
 function startPi(sess) {
   sess.piAlive = false;
   sess.piExitCode = null;
-  const pi = spawn(PI_BIN, ["--mode", "rpc"], {
+  const args = ["--mode", "rpc"];
+  if (sess.sessionFile) args.push("--session", sess.sessionFile); // resume the conversation
+  const pi = spawn(PI_BIN, args, {
     cwd: sess.cwd,
     env: { ...process.env, NO_COLOR: "1", TERM: "dumb" },
     stdio: ["pipe", "pipe", "inherit"],
@@ -137,6 +156,7 @@ function startPi(sess) {
       } else {
         if (rec.type === "session_info_changed" && typeof rec.name === "string") {
           sess.name = rec.name || null;
+          saveSessions();
         }
         if (rec.type === "agent_settled") {
           notifyMac("pi-gui", `Turn complete — ${sess.name || base(sess.cwd)}`);
@@ -149,6 +169,16 @@ function startPi(sess) {
   pi.stdin.on("error", () => {}); // swallow EPIPE — the child may die between the alive-check and a write
 
   sess.piAlive = true;
+
+  // learn which session file this pi is writing (for restart continuity)
+  sendCommand(sess, { type: "get_state" }, 10000)
+    .then((rec) => {
+      if (sess.pi === pi && rec.success && rec.data?.sessionFile) {
+        sess.sessionFile = rec.data.sessionFile;
+        saveSessions();
+      }
+    })
+    .catch(() => {});
 }
 
 // documented orderly shutdown: close stdin so pi can dispose and exit, escalate if it lingers
@@ -170,6 +200,7 @@ async function closeSession(sess) {
   sess.clients.clear();
   failPending(sess, "session closed");
   sessions.delete(sess.sid);
+  saveSessions();
   await stopPi(sess);
 }
 
@@ -299,11 +330,13 @@ const server = http.createServer(async (req, res) => {
       if (!sess) { sendJson(res, 404, { error: "no session" }); return; }
       if (t.cwd) {
         sess.cwd = expand(t.cwd);
+        sess.sessionFile = null; // different project → fresh conversation
         saveRecent(sess.cwd);
         for (const r of sess.clients) { try { r.write("data: " + JSON.stringify({ type: "cwd_changed", cwd: sess.cwd }) + "\n\n"); } catch {} }
       }
+      saveSessions();
       stopPi(sess); // graceful, in the background — supersession guards handle the overlap
-      startPi(sess);
+      startPi(sess); // resumes the same session file when known
       sendJson(res, 200, infoOf(sess));
       return;
     }
@@ -370,10 +403,19 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-// initial session
-createSession(null, null);
+// restore previous sessions (or start one fresh)
+const saved = loadSavedSessions();
+if (saved.length) {
+  for (const e of saved.slice(0, MAX_SESSIONS)) {
+    // resume only if the session file still exists; otherwise fresh in the same cwd
+    const sf = e.sessionFile && existsSync(e.sessionFile) ? e.sessionFile : null;
+    createSession(e.cwd, e.name || null, sf);
+  }
+} else {
+  createSession(null, null);
+}
 server.listen(PORT, "127.0.0.1", () => {
-  console.log(`pi-gui: http://127.0.0.1:${PORT}  (initial cwd: ${DEFAULT_CWD}, ${sessions.size} session)`);
+  console.log(`pi-gui: http://127.0.0.1:${PORT}  (initial cwd: ${DEFAULT_CWD}, ${sessions.size} session${sessions.size === 1 ? "" : "s"}, restored ${Math.min(saved.length, MAX_SESSIONS)})`);
 });
 function killAll() {
   for (const s of sessions.values()) { try { s.pi?.stdin.end(); } catch {} }

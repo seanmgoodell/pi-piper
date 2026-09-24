@@ -93,16 +93,22 @@ async function main() {
   tmp = mkdtempSync(join(tmpdir(), "pi-gui-smoke-"));
   const stubLog = join(tmp, "stub.log");
 
+  const stubSessionFile = join(tmp, "stub-session.jsonl"); // must exist for boot-restore resume
+  writeFileSync(stubSessionFile, "{\"type\":\"session\",\"version\":3}\n");
+  const serverEnv = () => ({
+    ...process.env,
+    PI_GUI_PORT: String(PORT),
+    PI_GUI_CWD: tmp,
+    PI_BIN: join(ROOT, "test", "stub-pi.sh"),
+    PI_GUI_NOTIFY: "0",
+    PI_GUI_STATE: join(tmp, "state.json"),
+    STUB_LOG: stubLog,
+    STUB_SESSION_FILE: stubSessionFile,
+    STUB_EXIT_DELAY_MS: "400", // widen the restart-race window deterministically
+  });
+
   server = spawn("node", [join(ROOT, "server.mjs")], {
-    env: {
-      ...process.env,
-      PI_GUI_PORT: String(PORT),
-      PI_GUI_CWD: tmp,
-      PI_BIN: join(ROOT, "test", "stub-pi.sh"),
-      PI_GUI_NOTIFY: "0",
-      STUB_LOG: stubLog,
-      STUB_EXIT_DELAY_MS: "400", // widen the restart-race window deterministically
-    },
+    env: serverEnv(),
     stdio: ["ignore", "pipe", "pipe"],
   });
   let serverErr = "";
@@ -157,6 +163,8 @@ async function main() {
   check("restart: no spurious pi_exited broadcast", !sse0.has("pi_exited"), JSON.stringify(sse0.events.map((e) => e.type)));
   const pr2 = await req("POST", "/api/command", { body: { sid: s0.sid, command: { type: "get_state" }, timeoutMs: 5000 } });
   check("restart: commands still work afterwards", pr2.status === 200 && pr2.json?.success === true, JSON.stringify(pr2.json));
+  const entriesR = stubLogEntries(stubLog);
+  check("restart: resumed with --session <file> (continuity)", entriesR.some((e) => e.pid === rr.json?.pid && e.event === `argv --mode rpc --session ${stubSessionFile}`), JSON.stringify(entriesR.filter((e) => e.pid === rr.json?.pid).map((e) => e.event)));
   sse0.close();
 
   // ---- graceful close (documented orderly shutdown via stdin) ----
@@ -203,6 +211,20 @@ async function main() {
   writeFileSync(ui, m ? m[1] : "");
   const syntax = spawnSync("node", ["--check", ui], { encoding: "utf8" });
   check("index.html: inline <script> passes node --check", !!m && syntax.status === 0, (syntax.stderr || "").slice(0, 300));
+
+  // ---- boot restore: kill the server, restart it, sessions come back ----
+  const beforeBoot = (await req("GET", "/api/sessions")).json ?? [];
+  server.kill("SIGKILL");
+  await sleepUntil(() => server.exitCode !== null, 5000);
+  server = spawn("node", [join(ROOT, "server.mjs")], { env: serverEnv(), stdio: ["ignore", "pipe", "pipe"] });
+  serverErr = "";
+  server.stderr.on("data", (c) => (serverErr += c));
+  let restored = false;
+  for (let i = 0; i < 75; i++) { const r = await req("GET", "/api/info"); if (r.status === 200) { restored = true; break; } await sleep(200); }
+  const restoredList = restored ? ((await req("GET", "/api/sessions")).json ?? []) : [];
+  check("boot: server restarts and restores sessions", restored && restoredList.length >= Math.min(beforeBoot.length, 5), `before=${beforeBoot.length} after=${restoredList.length}`);
+  const entriesB = stubLogEntries(stubLog);
+  check("boot: restored sessions resume with --session <file>", restoredList.some((s) => entriesB.some((e) => e.pid === s.pid && e.event === `argv --mode rpc --session ${stubSessionFile}`)), JSON.stringify(restoredList.map((s) => s.pid)));
 
   // ---- EPIPE survival (destructive: runs last) ----
   const cs = await req("POST", "/api/sessions", { body: { cwd: tmp } });
