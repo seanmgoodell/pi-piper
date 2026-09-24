@@ -1068,7 +1068,7 @@ function killEmptyState() { $("emptyState")?.remove?.(); }
 // ================= usage + context gauge =================
 function trackUsage(u) {
   if (!u) return;
-  const inT = (u.input || 0) + (u.cacheRead || 0);
+  const inT = (u.input || 0) + (u.cacheRead || 0) + (u.cacheWrite || 0);
   const cost = u.cost?.total != null ? `$${u.cost.total < 0.01 ? u.cost.total.toFixed(4) : u.cost.total.toFixed(3)}` : "";
   $("usage").textContent = `↑${inT.toLocaleString()} ↓${(u.output || 0).toLocaleString()} tok ${cost ? "· " + cost : ""}`;
 }
@@ -1638,11 +1638,13 @@ async function doSend(raw, isRetry = false) {
     queued = true;
   }
   const r = await send(cmd, 120000, s.sid);
-  if (!r.success && !queued) {
-    toast("send failed: " + (r.error || "unknown"), "error");
+  if (!r.success) {
+    toast((queued ? "queue" : "send") + " failed: " + (r.error || "unknown"), "error");
     userMsg(msg); // local echo so it's visible
     input.value = text; autosize();
-  } else if (queued) {
+    return false;
+  }
+  if (queued) {
     const chip = document.createElement("span");
     chip.className = "qchip";
     const modeLbl = queueMode === "steer" ? "steer" : "queue";
