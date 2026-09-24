@@ -1094,9 +1094,11 @@ async function doExportHtml() {
   const path = r.data?.path;
   toast("transcript exported" + (path ? " — " + baseName(path) : ""));
   if (!path) return;
+  // pi returns a path relative to the session cwd — resolve it like peekFile does
+  const abs = path.startsWith("/") ? path : (s.cwd ? s.cwd.replace(/\/$/, "") + "/" + path : path);
   try {
     // fetch the file through the local server and trigger a browser download
-    const res = await fetch("/api/file?path=" + encodeURIComponent(path));
+    const res = await fetch("/api/file?path=" + encodeURIComponent(abs));
     const d = await res.json();
     if (!res.ok || typeof d.content !== "string") return;
     const blob = new Blob([d.content], { type: "text/html" });
