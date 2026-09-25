@@ -130,11 +130,16 @@
   #chatwrap { flex: 1; overflow-y: auto; position: relative; }
   #chat { max-width: 820px; margin: 0 auto; padding: 20px 20px 30px; }
 
+  /* lives in the footer so it's always on screen, however far the transcript scrolls */
   #activity {
-    max-width: 820px; margin: 0 auto; padding: 0 20px; height: 22px;
-    font-size: 13px; color: var(--dim); display: flex; align-items: center; gap: 8px;
+    height: 20px; margin-bottom: 6px; padding: 0 2px;
+    font-size: 12.5px; color: var(--dim); display: flex; align-items: center; gap: 8px;
+    white-space: nowrap; overflow: hidden;
   }
   #activity.hidden { visibility: hidden; }
+  #activityText { overflow: hidden; text-overflow: ellipsis; }
+  #activityMeta { color: var(--dimmer); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  #activityMeta.stale { color: #e0c36a; }
   .spin { display: inline-block; width: 14px; color: var(--accent); }
 
   .empty { text-align: center; padding: 12vh 20px 0; }
@@ -451,7 +456,6 @@
 <div id="tabs"></div>
 
 <div id="chatwrap">
-  <div id="activity" class="hidden"><span class="spin" id="spin"></span><span id="activityText"></span></div>
   <div id="chat"></div>
   <button id="jump">↓ Latest</button>
   <div id="banner"><span id="bannerText"></span><button id="bannerBtn">Restart pi</button></div>
@@ -462,6 +466,7 @@
   <div id="ctxpop"></div>
   <div id="qpop"></div>
   <div class="foot-inner">
+    <div id="activity" class="hidden"><span class="spin" id="spin"></span><span id="activityText"></span><span id="activityMeta"></span></div>
     <div id="retrybar"></div>
     <div class="inputbox">
       <div class="attachrow" id="attachrow" style="display:none"></div>
@@ -667,18 +672,44 @@ function toast(msg, kind) {
   $("toasts").appendChild(t);
   setTimeout(() => { t.style.opacity = "0"; t.style.transition = "opacity .3s"; setTimeout(() => t.remove(), 350); }, 3800);
 }
+// Autoscroll: follow the bottom until the USER scrolls up; resume when they return.
+// "Following" is tracked as state rather than re-measured after each DOM update —
+// the old check measured *after* appending content, so any render batch taller than
+// the threshold (fast thinking, a code block, a tool row) silently dropped the follow.
+const chatwrap = $("chatwrap");
+let follow = true, lastTop = 0;
+const gapToBottom = () => chatwrap.scrollHeight - chatwrap.scrollTop - chatwrap.clientHeight;
+function updateJump() { $("jump").classList.toggle("show", !follow && gapToBottom() > 80); }
 function scrollToBottom(force) {
-  const w = $("chatwrap");
-  const nearBottom = w.scrollHeight - w.scrollTop - w.clientHeight < 60;
-  if (force || nearBottom) w.scrollTop = w.scrollHeight;
+  if (force) follow = true;
+  if (follow) { chatwrap.scrollTop = chatwrap.scrollHeight; lastTop = chatwrap.scrollTop; }
+  updateJump();
 }
-$("chatwrap").addEventListener("scroll", () => {
-  const w = $("chatwrap");
-  $("jump").classList.toggle("show", w.scrollHeight - w.scrollTop - w.clientHeight > 200);
-});
-$("jump").onclick = () => ($("chatwrap").scrollTop = $("chatwrap").scrollHeight);
+chatwrap.addEventListener("scroll", () => {
+  const top = chatwrap.scrollTop, gap = gapToBottom();
+  // moved up and not merely clamped by shrinking content → the user is reading history
+  if (top < lastTop && gap > 4) follow = false;
+  else if (gap < 40) follow = true;
+  lastTop = top;
+  updateJump();
+}, { passive: true });
+// Catch every growth source (streamed thinking/text, images decoding, expanded rows)
+new ResizeObserver(() => { if (follow) scrollToBottom(); else updateJump(); }).observe(chat);
+$("jump").onclick = () => scrollToBottom(true);
 
 const SPINNER = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];
+// Elapsed time for the current turn + a warning when pi has gone quiet, so a slow
+// model and a hung one are distinguishable at a glance.
+const STALE_MS = 30000;
+const fmtSecs = (ms) => { const t = Math.floor(ms / 1000); return t < 60 ? `${t}s` : `${Math.floor(t / 60)}m ${String(t % 60).padStart(2, "0")}s`; };
+function tickActivity() {
+  const s = active(), meta = $("activityMeta");
+  if (!s?.isStreaming || !s.turnStart) { meta.textContent = ""; meta.classList.remove("stale"); return; }
+  const now = Date.now(), idle = now - (s.lastEventAt || now);
+  meta.textContent = "· " + fmtSecs(now - s.turnStart) + (idle > STALE_MS ? ` · no output for ${fmtSecs(idle)}` : "");
+  meta.classList.toggle("stale", idle > STALE_MS);
+}
+setInterval(tickActivity, 1000);
 let spinIdx = 0, spinTimer = null;
 function setActivity(text, animate = true) {
   const el = $("activity"), at = $("activityText");
@@ -692,7 +723,10 @@ function setActivity(text, animate = true) {
       $("spin").textContent = SPINNER[spinIdx];
     }, 80);
   }
+  tickActivity();
 }
+// streaming phase label — only touch the DOM when the phase actually changes
+function setPhase(text) { if ($("activityText").textContent !== text) setActivity(text, true); }
 
 // ================= sessions =================
 const sessions = new Map();
@@ -717,8 +751,23 @@ function attachEvents(sess) {
   sess.es = new EventSource("/api/events?sid=" + encodeURIComponent(sess.sid));
   sess.es.onmessage = (e) => {
     let rec; try { rec = JSON.parse(e.data); } catch { return; }
+    sess.lastEventAt = Date.now();
+    if (rec.type === "agent_start") sess.turnStart = sess.lastEventAt;
     if (sess.sid === activeSid) onEvent(rec);
     else onBackground(sess, rec);
+  };
+  // Without these, a dropped server connection looked exactly like "still thinking".
+  sess.es.onerror = () => {
+    sess.sseLost = true;
+    if (sess.sid !== activeSid) return;
+    if (sess.es.readyState === EventSource.CLOSED) setActivity("Disconnected from the pi-piper server — reload the page", false);
+    else setActivity("Connection to server lost — reconnecting…", true);
+  };
+  sess.es.onopen = () => {
+    if (!sess.sseLost) return;
+    sess.sseLost = false;
+    // events were missed while disconnected: rebuild the transcript from pi's history
+    if (sess.sid === activeSid) { renderedSid = null; switchTo(sess.sid); }
   };
 }
 function onBackground(sess, rec) {
@@ -868,6 +917,7 @@ async function switchTo(sid) {
     const msgs = await send({ type: "get_messages" }, 20000, sid);
     if (sid !== activeSid) return; // switched away mid-load
     renderAll(msgs.data?.messages || []);
+    stream = null; // an event during the await may have built a stream in the now-wiped DOM
     renderedSid = sid;
     // replay ephemeral per-session state that isn't part of message history
     for (const entry of s.bashLog) if (entry.running) { userMsg(null, entry.cmd); bashBlockDom(entry); }
@@ -1178,7 +1228,7 @@ document.addEventListener("click", (e) => {
 // ================= streaming =================
 let stream = null;
 function ensureStream() {
-  if (stream) return stream;
+  if (stream?.body.isConnected) return stream;
   const { body } = assistantContainer();
   stream = { body, thinkEl: null, thinkBuf: "", textSeg: null, textBuf: "", renderT: null, placeholder: true, hasThinking: false };
   return stream;
@@ -1264,6 +1314,7 @@ function onEvent(rec) {
     case "agent_start":
       s.isStreaming = true; renderTabs();
       $("stopbtn").classList.add("show");
+      setActivity("Working…", true);
       break;
     case "agent_end":
       // one low-level run finished; retries/steering/compaction may still follow —
@@ -1302,10 +1353,12 @@ function onEvent(rec) {
       else if (ev?.type === "text_delta") s.streamBuf.text += ev.delta;
       if (stream) {
         if (ev?.type === "thinking_delta") {
+          setPhase("Thinking…");
           if (!stream.thinkEl) { stream.thinkEl = makeThinkEl(true); stream.body.appendChild(stream.thinkEl); stream.hasThinking = true; }
           stream.thinkBuf += ev.delta;
           scheduleStreamRender();
         } else if (ev?.type === "text_delta") {
+          setPhase("Writing…");
           if (!stream.textSeg) {
             stream.textSeg = document.createElement("div");
             stream.body.appendChild(stream.textSeg);
