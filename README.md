@@ -26,6 +26,11 @@ Environment:
 | `PI_GUI_CWD` | `$PWD` | working dir for the initial session |
 | `PI_BIN` | `pi` | pi executable |
 | `PI_GUI_NOTIFY` | on (macOS & Linux) | `0` to disable native notifications (osascript / notify-send) |
+| `PI_GUI_STATE_DIR` | `~/.local/state/pi-piper` (`$XDG_STATE_HOME` if set; `%LOCALAPPDATA%\pi-piper` on Windows) | where `sessions.json` and `projects.json` are kept |
+| `PI_GUI_PEEK_ANYWHERE` | off | `1` lets file peek / download read outside the open sessions' folders |
+
+State used to live in `~/pi-piper/`; it is picked up from there (or from the
+checkout folder) on first start and saved to the new location from then on.
 
 ## Setup on a new machine
 
@@ -161,8 +166,9 @@ taskkill /PID <pid> /F
   (max 5, server-enforced). Each session has its own cwd, model, history and SSE stream.
 - **Double-click a tab** to rename it (persisted via `set_session_name`).
 - **✕** closes a tab (kills that pi process). Background sessions keep running;
-  a pulsing dot shows when they're mid-turn.
-- **Recent projects** persist in `~/pi-piper/projects.json` and appear in the picker.
+  a pulsing dot shows when they're mid-turn, a pulsing yellow dot when an
+  extension is waiting for your answer.
+- **Recent projects** persist in `projects.json` (see `PI_GUI_STATE_DIR`) and appear in the picker.
 - Click the **folder pill** in the header to open the project picker (folder
   browser with parent navigation + ⌂ home).
 
@@ -170,8 +176,14 @@ taskkill /PID <pid> /F
 - Streaming assistant text (markdown + syntax-highlighted code with copy buttons),
   collapsible thinking blocks, compact one-line tool rows (click to expand args/result,
   ✕ on failed tools).
+- **Follows the output**: the transcript stays pinned to the newest output while
+  pi streams; scroll up to read and it stops following, **↓ Latest** (or scrolling
+  back to the bottom) resumes.
+- **Activity line** above the input, always visible: Working / Thinking / Writing /
+  Using *tool*, elapsed time for the turn, and a yellow **no output for Ns** warning
+  after 30 s of silence. Server disconnects show there too.
 - **File peek**: click any file path in a tool row (or "View file") → side drawer
-  with the file's contents (≤1MB, text only).
+  with the file's contents (≤1MB, text only; files inside an open session's folder).
 - **Enter** sends, **Shift+Enter** newline, **Esc** aborts the current run.
 
 ### Slash menu
@@ -204,6 +216,14 @@ saved transcript), **Compact now** (`compact`) and an auto-compaction toggle.
   hint to switch to a vision model (input and attachments are kept).
 - Text/code files (≤100KB, common extensions) are inlined into the prompt.
 
+### Extension UI
+Extension dialogs (`select`, `confirm`, `input`, `editor`) render inline with a
+Cancel option; answers go back as pi's `value` / `confirmed` / `cancelled`
+responses. Dialogs raised by a background tab are kept until you switch to it.
+`notify` shows a toast, `setStatus` fills the footer, `setWidget` shows text
+blocks above the input, `setTitle` sets the browser tab title and
+`set_editor_text` fills the composer.
+
 ### Notifications
 Native notification (macOS `osascript`, Linux `notify-send`) when a turn
 finishes or pi exits (`PI_GUI_NOTIFY=0` off). Not available on Windows.
@@ -221,8 +241,12 @@ finishes or pi exits (`PI_GUI_NOTIFY=0` off). Not available on Windows.
 | `GET /api/events?sid=X` | SSE stream of all records for that session |
 | `POST /api/command` `{sid, command, timeoutMs?}` | forward one RPC command |
 | `GET /api/dirs?path=...` | directory listing for the picker |
-| `GET /api/file?path=...` | file preview for the peek drawer (≤1MB, first 800 lines) |
-| `GET /api/download?path=...` | raw full-file transfer (Export HTML) |
+| `GET /api/file?path=...` | file preview for the peek drawer (≤1MB, first 800 lines; 403 outside the sessions' folders) |
+| `GET /api/download?path=...` | raw full-file transfer (Export HTML; same folder rule) |
+
+Browser requests to `/api/*` must be same-origin (`Origin` / `Sec-Fetch-Site`
+are checked) and every `POST` must be `Content-Type: application/json`.
+Non-browser clients such as `curl` send neither header and are unaffected.
 
 ## Tests
 
@@ -233,8 +257,8 @@ node test/smoke.mjs
 Zero-dependency smoke suite. It runs `server.mjs` against a stub `pi`
 (`test/stub-pi.mjs`) that speaks the RPC protocol, so it covers the HTTP/SSE
 surface, session lifecycle (restart races, stdin-EPIPE survival, graceful
-shutdown, `--session` resume, boot restore), the Host-header check, and
-`index.html` script syntax — without any LLM calls.
+shutdown, `--session` resume, boot restore), the Host-header, CSRF and
+file-access checks, and `index.html` script syntax — without any LLM calls.
 
 For a deeper acceptance pass against the real `pi` binary (costs a few LLM
 calls):
@@ -249,7 +273,8 @@ conversation continuity + memory check, and a vision model round-trip.
 
 ## Notes
 - Local-only: binds `127.0.0.1`, rejects non-loopback `Host` headers
-  (DNS-rebinding mitigation), no auth — don't port-forward it.
+  (DNS-rebinding mitigation) and cross-site browser requests (CSRF), serves the
+  UI with a strict Content-Security-Policy. No auth — don't port-forward it.
 - Model/thinking-level selectors are per-session; switching tabs updates them
   to that session's state.
 - The UI has no CDN dependencies — works fully offline.
