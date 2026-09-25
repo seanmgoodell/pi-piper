@@ -23,6 +23,7 @@ function check(name, cond, detail) {
   results.push({ name, ok: !!cond });
   console.log(`${cond ? "PASS" : "FAIL"}  ${name}${!cond ? `  → ${String(detail ?? "")}` : ""}`);
 }
+const okHostVersion = (r, v) => r.status === 200 && !!v && r.json?.version === v;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function sleepUntil(fn, timeoutMs) {
   const t0 = Date.now();
@@ -130,6 +131,8 @@ async function main() {
   const badHost = await req("GET", "/api/info", { host: "evil.example.com" });
   check("host: rejects non-loopback Host with 403", badHost.status === 403, `got ${badHost.status}`);
   const okHost = await req("GET", "/api/info");
+  const pkgVersion = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
+  check("info: reports the package.json version", okHostVersion(await req("GET", "/api/info"), pkgVersion), pkgVersion);
   check("host: accepts 127.0.0.1 Host", okHost.status === 200 && okHost.json?.sessions?.length >= 1, `got ${okHost.status}`);
   const lhHost = await req("GET", "/api/info", { host: `localhost:${PORT}` });
   check("host: accepts localhost Host", lhHost.status === 200, `got ${lhHost.status}`);

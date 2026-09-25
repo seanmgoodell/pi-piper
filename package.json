@@ -1,0 +1,14 @@
+{
+  "name": "pi-piper",
+  "version": "0.1.2",
+  "description": "Zero-dependency local web GUI for the pi coding agent",
+  "private": true,
+  "license": "MIT",
+  "repository": "github:seanhome71/pi-piper",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node test/smoke.mjs",
+    "test:e2e": "node test/e2e-real.mjs"
+  }
+}

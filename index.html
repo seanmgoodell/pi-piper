@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>pi</title>
+<title>pi-piper</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23171512'/%3E%3Crect x='10' y='15' width='44' height='9' rx='2' fill='%23d97757'/%3E%3Crect x='14' y='15' width='10' height='42' fill='%23d97757'/%3E%3Crect x='42' y='15' width='10' height='42' fill='%23d97757'/%3E%3C/svg%3E">
 <meta name="theme-color" content="#171512">
 <style>
@@ -46,6 +46,13 @@
     background: var(--panel); border-bottom: 1px solid var(--border-soft); flex-wrap: wrap;
   }
   .logo { font-weight: 700; font-size: 15px; color: var(--accent); }
+  .appname {
+    font-weight: 600; font-size: 13.5px; letter-spacing: .02em; color: var(--text);
+    padding-left: 12px; margin-left: 2px; border-left: 1px solid var(--border); white-space: nowrap;
+  }
+  .appname span { color: var(--accent); }
+  #version { color: var(--dimmer); text-decoration: none; font-variant-numeric: tabular-nums; }
+  #version:hover { color: var(--dim); text-decoration: underline; }
   .projpill {
     background: var(--panel2); border: 1px solid var(--border); color: var(--text);
     border-radius: 999px; padding: 4px 12px; font-size: 12.5px; cursor: pointer;
@@ -461,6 +468,7 @@
   <span class="spacer"></span>
   <select id="model" title="Model"></select>
   <select id="thinking" title="Thinking level"></select>
+  <span class="appname" title="pi-piper — local web GUI for the pi coding agent"><span>pi</span>-piper</span>
 </header>
 
 <div id="tabs"></div>
@@ -501,6 +509,7 @@
         <span id="usage"></span>
         <span id="ctx" title="Context window usage — click for details"><span class="bar"><span class="fill" id="ctxfill"></span></span><span id="ctxtext">ctx —</span></span>
         <span id="sessionInfo"></span>
+        <a id="version" href="https://github.com/seanhome71/pi-piper/releases" target="_blank" rel="noopener" title="pi-piper releases"></a>
       </span>
     </div>
   </div>
@@ -904,7 +913,7 @@ function updatePill() {
 function updateTitle() {
   const s = active();
   const asking = [...sessions.values()].some((x) => x.pendingDialogs.length);
-  document.title = s ? ((asking ? "❓ " : s.isStreaming ? "⏳ " : "· ") + (s.extTitle || s.name || baseName(s.cwd)) + " — pi") : "pi";
+  document.title = s ? ((asking ? "❓ " : s.isStreaming ? "⏳ " : "· ") + (s.extTitle || s.name || baseName(s.cwd)) + " — pi-piper") : "pi-piper";
 }
 
 // ================= switch session =================
@@ -2130,7 +2139,11 @@ $("bannerBtn").onclick = async () => {
 
 // ================= init =================
 async function init() {
-  try { homePath = (await fetch("/api/info").then(r => r.json())).home || homePath; } catch {}
+  try {
+    const info = await fetch("/api/info").then(r => r.json());
+    homePath = info.home || homePath;
+    if (info.version) $("version").textContent = "v" + info.version;
+  } catch {}
   syncThinkingOptions(null); // full list until a model is known
   const r = await fetch("/api/sessions");
   let list = await r.json();

@@ -45,6 +45,11 @@ const PORT = Number(process.env.PI_GUI_PORT || 4747);
 const DEFAULT_CWD = process.env.PI_GUI_CWD || process.cwd();
 const PI_BIN = process.env.PI_BIN || "pi";
 const MAX_SESSIONS = 5;
+// single source of truth for the version shown in the UI: package.json
+const VERSION = (() => {
+  try { return String(JSON.parse(readFileSync(join(__dirname, "package.json"), "utf8")).version || "") || null; }
+  catch { return null; }
+})();
 const NOTIFY = process.env.PI_GUI_NOTIFY !== "0" && (process.platform === "darwin" || process.platform === "linux");
 const PEEK_ANYWHERE = process.env.PI_GUI_PEEK_ANYWHERE === "1";
 
@@ -451,7 +456,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && (u.pathname === "/api/info" || u.pathname === "/api/sessions")) {
       sendJson(res, 200, u.pathname === "/api/info"
-        ? { sessions: [...sessions.values()].map(infoOf), maxSessions: MAX_SESSIONS, home: homedir() }
+        ? { sessions: [...sessions.values()].map(infoOf), maxSessions: MAX_SESSIONS, home: homedir(), version: VERSION }
         : [...sessions.values()].map(infoOf));
       return;
     }
@@ -583,7 +588,7 @@ server.listen(PORT, "127.0.0.1", () => {
   } else {
     createSession(null, null);
   }
-  console.log(`pi-piper: http://127.0.0.1:${PORT}  (initial cwd: ${DEFAULT_CWD}, ${sessions.size} session${sessions.size === 1 ? "" : "s"}, restored ${Math.min(saved.length, MAX_SESSIONS)}, state: ${STATE_DIR})`);
+  console.log(`pi-piper${VERSION ? " v" + VERSION : ""}: http://127.0.0.1:${PORT}  (initial cwd: ${DEFAULT_CWD}, ${sessions.size} session${sessions.size === 1 ? "" : "s"}, restored ${Math.min(saved.length, MAX_SESSIONS)}, state: ${STATE_DIR})`);
 });
 let shuttingDown = false;
 async function killAll() {

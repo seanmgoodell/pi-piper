@@ -233,7 +233,7 @@ finishes or pi exits (`PI_GUI_NOTIFY=0` off). Not available on Windows.
 | Method & path | Purpose |
 | --- | --- |
 | `GET /` | the UI (index.html) |
-| `GET /api/info` | `{ sessions, maxSessions, home }` |
+| `GET /api/info` | `{ sessions, maxSessions, home, version }` |
 | `GET /api/sessions` | list sessions `{sid, cwd, name, running, pid}` |
 | `POST /api/sessions` `{cwd?, name?}` | create a session (409 at the limit) |
 | `POST /api/close` `{sid}` | kill a session |
@@ -270,6 +270,14 @@ node test/e2e-real.mjs
 It drives a full conversation through the server: tool use, bash mode,
 history, stats, steering modes, export_html (full-file download), a restart with
 conversation continuity + memory check, and a vision model round-trip.
+
+## Releasing
+The version shown in the UI (bottom right) comes from `package.json`. Bump it
+there, commit, then tag the same version:
+
+```sh
+git tag -a v0.1.2 -m "pi-piper v0.1.2" && git push origin main v0.1.2
+```
 
 ## Notes
 - Local-only: binds `127.0.0.1`, rejects non-loopback `Host` headers
