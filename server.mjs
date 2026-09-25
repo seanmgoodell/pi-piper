@@ -429,8 +429,20 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "GET" && u.pathname === "/") {
       // a top-level navigation (bookmark, link) is harmless; only /api/* is guarded below
+      // read before writeHead: a failed read after the headers were committed used to
+      // destroy the socket, so the browser only showed ERR_EMPTY_RESPONSE
+      let page;
+      try { page = readFileSync(join(__dirname, "index.html")); }
+      catch (e) {
+        const msg = `pi-piper can't read its UI (${join(__dirname, "index.html")}): ${e.code || e.message}.\n` +
+          `If the pi-piper folder was moved or deleted, stop this server and start it from the new location.`;
+        console.error(msg);
+        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
+        res.end(msg + "\n");
+        return;
+      }
       res.writeHead(200, PAGE_HEADERS);
-      res.end(readFileSync(join(__dirname, "index.html")));
+      res.end(page);
       return;
     }
 

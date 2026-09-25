@@ -142,6 +142,23 @@ async function main() {
   check("port in use: second server exits 1 with a clear message", dup.status === 1 && /pi-piper: port \d+ is already in use/.test(dup.stderr), `status=${dup.status} stderr=${(dup.stderr || "").slice(0, 200)}`);
   check("port in use: no pi child spawned (no orphan EPIPE crashes)", startsAfter === startsBefore, `${startsBefore} → ${startsAfter}`);
 
+  // ---- UI missing (folder moved while running): readable 500, not an empty response ----
+  {
+    const dir = join(tmp, "moved");
+    mkdirSync(dir);
+    writeFileSync(join(dir, "server.mjs"), readFileSync(join(ROOT, "server.mjs"))); // no index.html beside it
+    const port2 = PORT + 1;
+    const s2 = spawn("node", [join(dir, "server.mjs")], { env: { ...serverEnv(), PI_GUI_PORT: String(port2), PI_GUI_STATE_DIR: join(tmp, "state2") }, stdio: "ignore" });
+    const get2 = () => new Promise((res_) => {
+      const r = http.get({ host: "127.0.0.1", port: port2, path: "/" }, (res) => { let b = ""; res.on("data", (c) => (b += c)); res.on("end", () => res_({ status: res.statusCode, text: b })); });
+      r.on("error", (e) => res_({ status: 0, err: e.code }));
+    });
+    let r2 = { status: 0 };
+    for (let i = 0; i < 40 && r2.status === 0 && r2.err !== "ECONNRESET"; i++) { await sleep(150); r2 = await get2(); }
+    check("page: missing index.html → 500 with an explanation (not an empty response)", r2.status === 500 && /can't read its UI/.test(r2.text || ""), JSON.stringify(r2).slice(0, 200));
+    s2.kill("SIGKILL");
+  }
+
   // ---- CSRF: other websites must not be able to drive pi through the browser ----
   const xOrigin = await req("POST", "/api/sessions", { body: {}, headers: { Origin: "https://evil.example.com" } });
   check("csrf: cross-origin POST refused (403)", xOrigin.status === 403, `got ${xOrigin.status}`);
