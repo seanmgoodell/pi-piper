@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/pi-piper-logo-dark-bg.svg">
+    <img src="assets/pi-piper-logo.svg" alt="pi-piper" width="360">
+  </picture>
+</p>
+
 # pi-piper
 
 A tiny local web GUI for the [pi coding agent](https://github.com/badlogic/pi-mono).
