@@ -68,6 +68,7 @@
   .tab .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dimmer); flex-shrink: 0; }
   .tab.working .dot { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
   .tab.dead .dot { background: var(--err); }
+  .tab.ask .dot { background: #e0c36a; animation: pulse 1.2s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: .35; } }
   .tab .tname { overflow: hidden; text-overflow: ellipsis; font-family: "SF Mono", ui-monospace, monospace; }
   .tab .rename { width: 130px; background: var(--panel); border: 1px solid var(--accent); border-radius: 4px;
@@ -262,6 +263,9 @@
     width: 100%; background: var(--code-bg); color: var(--text); border: 1px solid var(--border);
     border-radius: 7px; padding: 8px 10px; font: inherit; margin-bottom: 8px;
   }
+  .dialog .opts button.cancel { background: none; color: var(--dim); }
+  .dialog .opts button.cancel:first-child { background: none; border-color: var(--border); color: var(--dim); font-weight: 400; }
+  .dialog .title { font-size: 11px; color: var(--dimmer); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
   .dialog.answered { opacity: .45; pointer-events: none; }
   .dialog .answer { color: var(--dim); font-size: 12.5px; margin-top: 8px; }
 
@@ -343,6 +347,12 @@
   .hintrow .right { margin-left: auto; display: flex; gap: 12px; align-items: center; }
   #usage { font-variant-numeric: tabular-nums; }
   #extstatus { color: var(--dim); }
+  #widgets { margin-bottom: 8px; display: none; flex-direction: column; gap: 6px; }
+  #widgets.show { display: flex; }
+  #widgets pre {
+    margin: 0; padding: 6px 10px; background: var(--panel); border: 1px solid var(--border-soft); border-radius: 8px;
+    font: 12px/1.5 "SF Mono", ui-monospace, monospace; color: var(--dim); white-space: pre-wrap; max-height: 160px; overflow-y: auto;
+  }
 
   #ctx {
     display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
@@ -468,6 +478,7 @@
   <div class="foot-inner">
     <div id="activity" class="hidden"><span class="spin" id="spin"></span><span id="activityText"></span><span id="activityMeta"></span></div>
     <div id="retrybar"></div>
+    <div id="widgets"></div>
     <div class="inputbox">
       <div class="attachrow" id="attachrow" style="display:none"></div>
       <div class="qrow" id="qrow" style="display:none"></div>
@@ -603,17 +614,17 @@ function highlightDiff(code) {
 const langOfPath = (p) => EXT_LANG[(p.split(".").pop() || "").toLowerCase()] || "txt";
 
 // ================= code blocks =================
-const codeStore = new Map(); let codeId = 0;
+// The copy button reads the rendered <code>'s textContent (highlight spans only wrap
+// escaped text, so it round-trips exactly). A side table of raw strings leaked: md()
+// re-renders every 120ms while streaming and registered each block again every time.
 function codeBlockHtml(raw, lang) {
-  const id = ++codeId;
-  codeStore.set(id, raw);
   return `<div class="codeblock"><div class="cbhead"><span>${esc(lang || "text")}</span>` +
-    `<button data-copy="${id}">copy</button></div><pre><code>${highlight(raw, lang)}</code></pre></div>`;
+    `<button class="cbcopy">copy</button></div><pre><code>${highlight(raw, lang)}</code></pre></div>`;
 }
 document.addEventListener("click", (e) => {
-  const b = e.target.closest("[data-copy]");
+  const b = e.target.closest(".cbcopy");
   if (!b) return;
-  const raw = codeStore.get(Number(b.dataset.copy));
+  const raw = b.closest(".codeblock")?.querySelector("pre code")?.textContent;
   if (raw == null) return;
   navigator.clipboard.writeText(raw).then(() => {
     b.textContent = "copied ✓";
@@ -741,6 +752,8 @@ function makeSession(info) {
     es: null, isStreaming: false, piAlive: info.running,
     queue: [], lastUser: null, cmdCache: null, stats: null,
     pendingDialogs: [], bashLog: [], streamBuf: { text: "", think: "" },
+    autoCpt: true, exited: null,            // exited: { code } while pi is down
+    extStatus: new Map(), widgets: new Map(), extTitle: null, // extension UI state
   };
   sessions.set(info.sid, sess);
   attachEvents(sess);
@@ -753,6 +766,14 @@ function attachEvents(sess) {
     let rec; try { rec = JSON.parse(e.data); } catch { return; }
     sess.lastEventAt = Date.now();
     if (rec.type === "agent_start") sess.turnStart = sess.lastEventAt;
+    // session-level bookkeeping that must happen whether or not the tab is visible
+    if (rec.type === "extension_ui_request") { onExtUi(sess, rec); return; }
+    if (rec.type === "message_start" && rec.message?.role === "user") dequeue(sess, rec.message);
+    if (rec.type === "agent_settled" && sess.queue.length) { sess.queue = []; if (sess.sid === activeSid) renderQueue(); }
+    if (rec.type === "pi_exited" || rec.type === "pi_spawn_error") {
+      sess.exited = { code: rec.code ?? null, error: rec.error || null };
+      sess.pendingDialogs = []; // pi is gone — nobody is waiting for these answers
+    }
     if (sess.sid === activeSid) onEvent(rec);
     else onBackground(sess, rec);
   };
@@ -773,7 +794,7 @@ function attachEvents(sess) {
 function onBackground(sess, rec) {
   if (rec.type === "agent_start") { sess.isStreaming = true; renderTabs(); }
   else if (rec.type === "agent_settled") { sess.isStreaming = false; renderTabs(); }
-  else if (rec.type === "pi_exited") { sess.piAlive = false; renderTabs(); }
+  else if (rec.type === "pi_exited" || rec.type === "pi_spawn_error") { sess.piAlive = false; sess.isStreaming = false; renderTabs(); }
   else if (rec.type === "message_start" && rec.message?.role === "assistant") sess.streamBuf = { text: "", think: "" };
   else if (rec.type === "message_update") {
     const ev = rec.assistantMessageEvent;
@@ -783,6 +804,7 @@ function onBackground(sess, rec) {
 }
 async function send(command, timeoutMs = 60000, sid) {
   const s = sid || activeSid;
+  if (!sid) console.warn("send() without an explicit sid:", command.type); // should not happen — pass the session's sid
   try {
     const res = await fetch("/api/command", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -803,11 +825,11 @@ function renderTabs() {
   for (const s of sessions.values()) {
     const t = document.createElement("div");
     t.className = "tab" + (s.sid === activeSid ? " active" : "") +
-      (s.isStreaming ? " working" : (!s.piAlive ? " dead" : ""));
+      (s.pendingDialogs.length ? " ask" : s.isStreaming ? " working" : (!s.piAlive ? " dead" : ""));
     const dot = document.createElement("span"); dot.className = "dot";
     const nm = document.createElement("span"); nm.className = "tname";
     nm.textContent = s.name || baseName(s.cwd);
-    nm.title = (s.name ? s.name + " · " : "") + s.cwd + "  (double-click to rename)";
+    nm.title = (s.name ? s.name + " · " : "") + s.cwd + (s.pendingDialogs.length ? "  — waiting for your answer" : "") + "  (double-click to rename)";
     const tx = document.createElement("span"); tx.className = "tx"; tx.textContent = "✕";
     tx.title = "Close session";
     t.append(dot, nm, tx);
@@ -860,7 +882,8 @@ function renameSession(s) {
 async function closeTab(sid) {
   const s = sessions.get(sid);
   if (s?.isStreaming && !confirm("This session is working — close anyway?")) return;
-  await fetch("/api/close", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sid }) });
+  const r = await fetch("/api/close", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sid }) }).catch(() => null);
+  if (!r || (!r.ok && r.status !== 404)) { toast("close failed", "error"); return; }
   if (s) { s.es?.close(); sessions.delete(sid); }
   if (activeSid === sid) {
     const rest = [...sessions.values()];
@@ -880,7 +903,8 @@ function updatePill() {
 }
 function updateTitle() {
   const s = active();
-  document.title = s ? ((s.isStreaming ? "⏳ " : "· ") + (s.name || baseName(s.cwd)) + " — pi") : "pi";
+  const asking = [...sessions.values()].some((x) => x.pendingDialogs.length);
+  document.title = s ? ((asking ? "❓ " : s.isStreaming ? "⏳ " : "· ") + (s.extTitle || s.name || baseName(s.cwd)) + " — pi") : "pi";
 }
 
 // ================= switch session =================
@@ -911,7 +935,7 @@ async function switchTo(sid) {
   const s = active();
   stream = null;
   hideRetryBar(); hideCtxPop(); hideQPop(); closeSlash();
-  renderTabs(); updatePill();
+  renderTabs(); updatePill(); renderBanner(); renderExtUi();
   if (renderedSid !== sid) {
     setActivity("Loading…", false);
     const msgs = await send({ type: "get_messages" }, 20000, sid);
@@ -1190,10 +1214,10 @@ $("ctx").onclick = (e) => {
     <div class="row"><span>session tokens (in / out / cache)</span><b>${fmt(st?.tokens?.input)} / ${fmt(st?.tokens?.output)} / ${fmt(st?.tokens?.cacheRead)}</b></div>
     <div class="row"><span>session cost</span><b>$${(st?.cost ?? 0).toFixed(3)}</b></div>
     <div class="row"><span>messages / tool calls</span><b>${st?.totalMessages ?? "—"} / ${st?.toolCalls ?? "—"}</b></div>
-    <div class="row"><span>auto-compaction</span><b id="autoCptLabel">${autoCpt ? "on" : "off"}</b></div>
+    <div class="row"><span>auto-compaction</span><b id="autoCptLabel">${active()?.autoCpt ? "on" : "off"}</b></div>
     <div class="actions">
       <button id="doCompact">⟲ Compact now</button>
-      <button id="toggleCpt">auto-compaction: ${autoCpt ? "on" : "off"}</button>
+      <button id="toggleCpt">auto-compaction: ${active()?.autoCpt ? "on" : "off"}</button>
       <button id="doExport">⤓ Export HTML</button>
     </div>`;
   pop.classList.add("show");
@@ -1201,7 +1225,6 @@ $("ctx").onclick = (e) => {
   pop.querySelector("#toggleCpt").onclick = () => toggleAutoCpt();
   pop.querySelector("#doExport").onclick = () => doExportHtml();
 };
-let autoCpt = true;
 async function doCompact() {
   const s = active(); if (!s) return;
   hideCtxPop();
@@ -1215,9 +1238,10 @@ async function doCompact() {
   refreshCtx();
 }
 async function toggleAutoCpt() {
-  autoCpt = !autoCpt;
-  const r = await send({ type: "set_auto_compaction", enabled: autoCpt }, 15000);
-  if (r.success) { toast("auto-compaction " + (autoCpt ? "on" : "off")); hideCtxPop(); }
+  const s = active(); if (!s) return;
+  const want = !s.autoCpt;
+  const r = await send({ type: "set_auto_compaction", enabled: want }, 15000, s.sid);
+  if (r.success) { s.autoCpt = want; toast("auto-compaction " + (want ? "on" : "off")); hideCtxPop(); }
   else toast("failed: " + (r.error || ""), "error");
 }
 document.addEventListener("click", (e) => {
@@ -1258,53 +1282,146 @@ function endStream() {
   stream = null;
 }
 
-// ================= extension dialogs =================
+// ================= extension UI (pi RPC extension UI subprotocol) =================
+// Dialog methods (select / confirm / input / editor) wait for an extension_ui_response
+// carrying `value`, `confirmed` or `cancelled`. The others are fire-and-forget.
+const DIALOG_METHODS = new Set(["select", "confirm", "input", "editor"]);
+function onExtUi(sess, req) {
+  const isActive = sess.sid === activeSid;
+  const label = sess.name || baseName(sess.cwd);
+  switch (req.method) {
+    case "notify":
+      toast((isActive ? "" : label + ": ") + (req.message || ""), req.notifyType === "error" ? "error" : req.notifyType === "warning" ? "warn" : "");
+      return;
+    case "setStatus":
+      if (req.statusText == null) sess.extStatus.delete(req.statusKey); else sess.extStatus.set(req.statusKey, String(req.statusText));
+      if (isActive) renderExtUi();
+      return;
+    case "setWidget":
+      if (!Array.isArray(req.widgetLines)) sess.widgets.delete(req.widgetKey);
+      else sess.widgets.set(req.widgetKey, req.widgetLines.map(String));
+      if (isActive) renderExtUi();
+      return;
+    case "setTitle":
+      sess.extTitle = req.title || null;
+      updateTitle();
+      return;
+    case "set_editor_text":
+      if (isActive) { input.value = req.text ?? ""; autosize(); input.focus(); }
+      return;
+  }
+  if (!DIALOG_METHODS.has(req.method)) return; // unknown method: nothing to render
+  sess.pendingDialogs.push(req);
+  // with a timeout, pi auto-resolves the dialog itself — stop offering it afterwards
+  if (req.timeout > 0) setTimeout(() => expireDialog(sess, req), req.timeout);
+  if (isActive) buildDialog(req, sess);
+  else toast(`${label} is waiting for your answer`, "warn");
+  renderTabs();
+}
+function expireDialog(sess, req) {
+  if (!sess.pendingDialogs.includes(req)) return;
+  sess.pendingDialogs = sess.pendingDialogs.filter((x) => x !== req);
+  const d = req.el;
+  if (d?.isConnected && !d.classList.contains("answered")) {
+    d.classList.add("answered");
+    const a = document.createElement("div"); a.className = "answer"; a.textContent = "→ timed out (pi used its default)";
+    d.appendChild(a);
+  }
+  renderTabs();
+}
+function renderExtUi() {
+  const s = active();
+  $("extstatus").textContent = s ? [...s.extStatus.values()].join(" · ") : "";
+  const w = $("widgets");
+  w.innerHTML = "";
+  for (const lines of s ? s.widgets.values() : []) {
+    const pre = document.createElement("pre");
+    pre.textContent = lines.join("\n");
+    w.appendChild(pre);
+  }
+  w.classList.toggle("show", !!w.children.length);
+}
 function buildDialog(req, sess) {
   killEmptyState();
   const d = document.createElement("div");
   d.className = "dialog";
-  const q = document.createElement("div"); q.className = "q"; q.textContent = req.message || req.title || "Question";
-  d.appendChild(q);
-  if (req.description) {
-    const m = document.createElement("div"); m.className = "m"; m.textContent = req.description;
-    d.appendChild(m);
+  req.el = d;
+  if (req.method === "confirm" && req.title && req.message) {
+    const t = document.createElement("div"); t.className = "q"; t.textContent = req.title;
+    const m = document.createElement("div"); m.className = "m"; m.textContent = req.message;
+    d.append(t, m);
+  } else {
+    const q = document.createElement("div"); q.className = "q"; q.textContent = req.title || req.message || "Extension question";
+    d.appendChild(q);
   }
-  if (req.options?.length) {
-    const opts = document.createElement("div"); opts.className = "opts";
-    req.options.forEach((o, i) => {
-      const b = document.createElement("button");
-      b.textContent = o.label || o;
-      b.onclick = () => {
-        sess.pendingDialogs = sess.pendingDialogs.filter((x) => x !== req);
-        d.classList.add("answered");
-        const a = document.createElement("div"); a.className = "answer";
-        a.textContent = "→ " + b.textContent;
-        d.appendChild(a);
-        send({ type: "extension_ui_response", id: req.id, response: { selected: o.value ?? o } });
-      };
-      opts.appendChild(b);
+  const answer = (payload, shown) => {
+    if (d.classList.contains("answered")) return;
+    sess.pendingDialogs = sess.pendingDialogs.filter((x) => x !== req);
+    d.classList.add("answered");
+    const a = document.createElement("div"); a.className = "answer"; a.textContent = "→ " + shown;
+    d.appendChild(a);
+    renderTabs(); updateTitle();
+    send({ type: "extension_ui_response", id: req.id, ...payload }, 15000, sess.sid).then((r) => {
+      if (!r.success) toast("answer not delivered: " + (r.error || "unknown"), "error");
     });
-    d.appendChild(opts);
-  } else if (req.allowSubmit !== false) {
-    const ta = document.createElement("textarea");
-    ta.rows = 2; ta.value = req.defaultValue || "";
-    const go = document.createElement("button");
-    go.textContent = "Submit";
-    go.style.cssText = "background:var(--accent);border:1px solid var(--accent);color:#171512;font-weight:600;border-radius:7px;padding:5px 14px;cursor:pointer;font-size:13px";
-    go.onclick = () => {
-      sess.pendingDialogs = sess.pendingDialogs.filter((x) => x !== req);
-      d.classList.add("answered");
-      const a = document.createElement("div"); a.className = "answer";
-      a.textContent = "→ " + ta.value;
-      d.appendChild(a);
-      send({ type: "extension_ui_response", id: req.id, response: { text: ta.value } });
-    };
-    d.append(ta, go);
+  };
+  const opts = document.createElement("div"); opts.className = "opts";
+  const btn = (text, onClick, cls) => {
+    const b = document.createElement("button");
+    b.textContent = text; if (cls) b.className = cls; b.onclick = onClick;
+    opts.appendChild(b); return b;
+  };
+  if (req.method === "select") {
+    for (const o of req.options || []) {
+      const value = typeof o === "string" ? o : (o.value ?? o.label);
+      const text = typeof o === "string" ? o : (o.label ?? String(o.value));
+      btn(text, () => answer({ value }, text));
+    }
+  } else if (req.method === "confirm") {
+    btn("Yes", () => answer({ confirmed: true }, "yes"));
+    btn("No", () => answer({ confirmed: false }, "no"));
+  } else {
+    // input (single line) or editor (multi-line, optional prefill)
+    const field = document.createElement(req.method === "editor" ? "textarea" : "input");
+    if (req.method === "editor") { field.rows = 6; field.value = req.prefill || ""; }
+    else { field.type = "text"; field.placeholder = req.placeholder || ""; }
+    const submit = () => answer({ value: field.value }, field.value || "(empty)");
+    field.addEventListener("keydown", (e) => {
+      e.stopPropagation(); // keep Enter/Esc away from the main composer
+      if (e.key === "Enter" && (req.method === "input" ? !e.shiftKey : (e.metaKey || e.ctrlKey))) { e.preventDefault(); submit(); }
+    });
+    d.appendChild(field);
+    btn("Submit", submit);
+    setTimeout(() => field.focus(), 0);
   }
+  btn("Cancel", () => answer({ cancelled: true }, "cancelled"), "cancel");
+  d.appendChild(opts);
   chat.appendChild(d);
   scrollToBottom();
 }
-function renderDialog(req) { buildDialog(req, active()); }
+
+// ================= banner (per session: pi exited) =================
+function renderBanner() {
+  const s = active();
+  const show = !!s?.exited;
+  $("banner").style.display = show ? "flex" : "none";
+  if (show) $("bannerText").textContent = s.exited.error
+    ? `pi failed to start for ${baseName(s.cwd)}: ${s.exited.error}`
+    : `pi exited (${s.exited.code ?? "unknown"}) for ${baseName(s.cwd)}`;
+}
+
+// ================= queue bookkeeping =================
+// A delivered queued message comes back as a user message_start. Remove the chip whose
+// text matches (steer and follow-up messages can be delivered out of send order);
+// fall back to the oldest chip when pi rewrote the text (e.g. an expanded /template).
+function dequeue(sess, message) {
+  if (!sess.queue.length) return;
+  const txt = contentText(message.content);
+  let i = sess.queue.findIndex((c) => c.dataset.msg === txt);
+  if (i < 0) i = 0;
+  sess.queue.splice(i, 1)[0].remove();
+  if (sess.sid === activeSid) renderQueue();
+}
 
 // ================= event dispatch =================
 function onEvent(rec) {
@@ -1339,7 +1456,6 @@ function onEvent(rec) {
       break;
     case "message_start":
       if (rec.message?.role === "user") {
-        if (s.queue.length) { const [chip] = s.queue.splice(0, 1); chip.remove(); renderQueue(); }
         userMsg(rec.message.content);
         scrollToBottom();
       } else if (rec.message?.role === "assistant") {
@@ -1435,9 +1551,6 @@ function onEvent(rec) {
       setActivity(`auto-retrying (attempt ${rec.attempt ?? "?"}/${rec.maxAttempts ?? "?"})… ${rec.errorMessage || ""}`, true);
       if (active() === s) showRetryBar(rec.errorMessage || "auto-retrying");
       break;
-    case "extension_ui_request":
-      renderDialog(rec);
-      break;
     case "extension_ui_response":
       break;
     case "extension_error":
@@ -1460,12 +1573,12 @@ function onEvent(rec) {
     case "branch_summary_response":
       break;
     case "pi_exited":
+    case "pi_spawn_error":
       s.piAlive = false; s.isStreaming = false;
       renderTabs();
       $("stopbtn").classList.remove("show");
-      setActivity("pi process exited", false);
-      $("banner").style.display = "flex";
-      $("bannerText").textContent = `pi exited (${rec.code ?? "unknown"}) for ${baseName(s.cwd)}`;
+      setActivity(rec.type === "pi_spawn_error" ? "pi failed to start" : "pi process exited", false);
+      renderBanner();
       break;
   }
 }
@@ -1592,7 +1705,7 @@ function showRetryBar(errMsg) {
     else toast("no previous message to retry", "warn");
   };
   bar.querySelector("#rbStop").onclick = async () => {
-    const r = await send({ type: "abort_retry" }, 15000);
+    const r = await send({ type: "abort_retry" }, 15000, active()?.sid);
     if (r.success) { hideRetryBar(); toast("retries stopped"); }
   };
 }
@@ -1623,13 +1736,13 @@ function renderQPop() {
     renderQPop();
   });
   qLine("steering delivery", ["all", "one-at-a-time"], s?.qSteering || "one-at-a-time", async (o) => {
-    const r = await send({ type: "set_steering_mode", mode: o }, 15000);
+    const r = await send({ type: "set_steering_mode", mode: o }, 15000, s?.sid);
     if (r.success) { s.qSteering = o; toast("steering delivery → " + o); }
     else toast("steering mode failed: " + (r.error || "unknown"), "error");
     renderQPop();
   });
   qLine("follow-up delivery", ["all", "one-at-a-time"], s?.qFollowUp || "one-at-a-time", async (o) => {
-    const r = await send({ type: "set_follow_up_mode", mode: o }, 15000);
+    const r = await send({ type: "set_follow_up_mode", mode: o }, 15000, s?.sid);
     if (r.success) { s.qFollowUp = o; toast("follow-up delivery → " + o); }
     else toast("follow-up mode failed: " + (r.error || "unknown"), "error");
     renderQPop();
@@ -1657,14 +1770,14 @@ input.addEventListener("keydown", (e) => {
   } else if (e.key === "Escape") {
     if (slashOpen) { e.preventDefault(); closeSlash(); return; }
     const s = active();
-    if (s?.isStreaming) send({ type: "abort" });
+    if (s?.isStreaming) send({ type: "abort" }, 15000, s.sid);
   } else if (slashOpen) {
     if (e.key === "ArrowDown") { e.preventDefault(); slashIdx = Math.min(slashIdx + 1, slashItems.length - 1); updateSlash(); }
     else if (e.key === "ArrowUp") { e.preventDefault(); slashIdx = Math.max(slashIdx - 1, 0); updateSlash(); }
     else if (e.key === "Tab") { e.preventDefault(); applySlash(slashItems[slashIdx]?.name); }
   }
 });
-$("stopbtn").onclick = () => { const s = active(); if (s?.isStreaming) send({ type: "abort" }); };
+$("stopbtn").onclick = () => { const s = active(); if (s?.isStreaming) send({ type: "abort" }, 15000, s.sid); };
 
 async function doSend(raw, isRetry = false) {
   const s = active();
@@ -1683,7 +1796,8 @@ async function doSend(raw, isRetry = false) {
   // pi's prompt command takes a plain string message; images go in a separate `images` field
   let msg = text;
   const images = [];
-  for (const a of attachments) {
+  // a retry resends the last message as-is; the composer's current draft stays untouched
+  for (const a of isRetry ? [] : attachments) {
     if (a.kind === "image") images.push({ type: "image", data: a.data, mimeType: a.mimeType });
     else msg = (msg ? msg + "\n\n" : "") + `--- attached file: ${a.name} ---\n${a.text}\n--- end of ${a.name} ---`;
   }
@@ -1700,10 +1814,11 @@ async function doSend(raw, isRetry = false) {
     return false; // input and attachments are kept so the user can switch models and re-send
   }
 
-  input.value = ""; autosize(); closeSlash();
+  const prevUser = s.lastUser, prevImages = s.lastImages;
+  const sentAttachments = attachments;
   s.lastUser = msg;
   s.lastImages = images;
-  clearAttachments();
+  if (!isRetry) { input.value = ""; autosize(); closeSlash(); clearAttachments(); }
 
   const cmd = { type: "prompt", message: msg };
   if (images.length) cmd.images = images;
@@ -1715,13 +1830,15 @@ async function doSend(raw, isRetry = false) {
   const r = await send(cmd, 120000, s.sid);
   if (!r.success) {
     toast((queued ? "queue" : "send") + " failed: " + (r.error || "unknown"), "error");
-    userMsg(msg); // local echo so it's visible
-    input.value = text; autosize();
+    // put everything back so it can be re-sent (no transcript echo — it was never delivered)
+    if (!isRetry) { input.value = raw; autosize(); attachments = sentAttachments; renderAttachments(); }
+    s.lastUser = prevUser; s.lastImages = prevImages;
     return false;
   }
   if (queued) {
     const chip = document.createElement("span");
     chip.className = "qchip";
+    chip.dataset.msg = msg; // matched against the delivered user message in dequeue()
     const modeLbl = queueMode === "steer" ? "steer" : "queue";
     chip.innerHTML = `<span class="qmode">${modeLbl}</span><span class="qtxt">${esc(String(text).slice(0, 80))}</span>`;
     s.queue.push(chip);
@@ -1844,8 +1961,8 @@ function applyState(st) {
     syncThinkingOptions(st.model);
   }
   if (st.thinkingLevel) thinkingSel.value = st.thinkingLevel;
-  if (st.autoCompactionEnabled != null) autoCpt = st.autoCompactionEnabled;
   const sForQ = active();
+  if (sForQ && st.autoCompactionEnabled != null) sForQ.autoCpt = st.autoCompactionEnabled;
   if (sForQ) {
     if (st.steeringMode) sForQ.qSteering = st.steeringMode;
     if (st.followUpMode) sForQ.qFollowUp = st.followUpMode;
@@ -1884,12 +2001,12 @@ async function loadModels() {
 }
 modelSel.onchange = async () => {
   const [pid, mid] = modelSel.value.split("::");
-  const r = await send({ type: "set_model", provider: pid, modelId: mid }, 15000);
+  const r = await send({ type: "set_model", provider: pid, modelId: mid }, 15000, activeSid);
   if (r.success) toast("model → " + (modelSel.selectedOptions[0]?.textContent || mid));
   else { toast("model switch failed: " + (r.error || "unknown"), "error"); refreshState(); }
 };
 thinkingSel.onchange = async () => {
-  const r = await send({ type: "set_thinking_level", level: thinkingSel.value }, 15000);
+  const r = await send({ type: "set_thinking_level", level: thinkingSel.value }, 15000, activeSid);
   if (r.success) toast("thinking → " + thinkingSel.value);
   else { toast("thinking level failed: " + (r.error || "unknown"), "error"); refreshState(); }
 };
@@ -1999,15 +2116,16 @@ $("bannerBtn").onclick = async () => {
   const s = active(); if (!s) return;
   $("banner").style.display = "none";
   toast("restarting pi…", "warn");
-  const r = await fetch("/api/restart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sid: s.sid }) });
-  if (r.ok) {
+  const r = await fetch("/api/restart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sid: s.sid }) }).catch(() => null);
+  if (r?.ok) {
     s.piAlive = true;
+    s.exited = null;
     renderedSid = null; // force re-render
     attachEvents(s);
     renderTabs();
     await switchTo(s.sid);
     toast("pi restarted");
-  } else toast("restart failed", "error");
+  } else { toast("restart failed", "error"); renderBanner(); }
 };
 
 // ================= init =================
