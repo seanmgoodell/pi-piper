@@ -913,6 +913,8 @@ function toolArgSummary(name, a) {
     }
   }
 }
+// pi's ToolResultMessage holds its output in `content` (text/image blocks)
+const toolResultOf = (m) => (m.content !== undefined ? { content: m.content } : m.result);
 function toolPath(a) { a = a || {}; return a.path || a.file_path || a.filename || null; }
 const toolRows = new Map();
 
@@ -1030,7 +1032,7 @@ function renderAssistantFinal(body, content) {
       body.appendChild(p);
     } else if (b.type === "toolCall") {
       let row = toolRows.get(b.id) || null;
-      if (!row) row = makeToolRow(b.id, b.name, b.arguments, "done");
+      if (!row) row = makeToolRow(b.id, b.name, b.arguments, "pending"); // result (if any) marks it done/err
       body.appendChild(row);
     }
   }
@@ -1038,7 +1040,7 @@ function renderAssistantFinal(body, content) {
 function renderMessage(m) {
   const role = m.role;
   if (role === "user") { userMsg(m.content); return; }
-  if (role === "toolResult") { attachToolResult(m.toolCallId, m.result, m.isError); return; }
+  if (role === "toolResult") { attachToolResult(m.toolCallId, toolResultOf(m), m.isError); return; }
   if (role === "assistant") {
     const { body } = assistantContainer();
     renderAssistantFinal(body, m.content);
@@ -1330,16 +1332,22 @@ function onEvent(rec) {
         if (m.stopReason === "error" && m.errorMessage) showRetryBar(m.errorMessage);
         scrollToBottom();
       } else if (m?.role === "toolResult") {
-        attachToolResult(m.toolCallId, m.result, m.isError);
+        attachToolResult(m.toolCallId, toolResultOf(m), m.isError);
         scrollToBottom();
       }
       break;
     }
     case "tool_execution_start": {
-      const st = ensureStream();
-      st.body.querySelector(".md-placeholder")?.remove();
-      const row = makeToolRow(rec.toolCallId, rec.toolName, rec.args, "running");
-      st.body.appendChild(row);
+      // the assistant's message_end usually already rendered this call — reuse that row
+      const row = toolRows.get(rec.toolCallId);
+      if (row?.isConnected) {
+        row.className = "tool running";
+        row.querySelector(".ico").textContent = "⋯";
+      } else {
+        const st = ensureStream();
+        st.body.querySelector(".md-placeholder")?.remove();
+        st.body.appendChild(makeToolRow(rec.toolCallId, rec.toolName, rec.args, "running"));
+      }
       setActivity(`Using ${rec.toolName}…`, true);
       scrollToBottom();
       break;
