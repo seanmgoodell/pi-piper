@@ -546,19 +546,32 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-// restore previous sessions (or start one fresh)
-const saved = loadSavedSessions();
-if (saved.length) {
-  for (const e of saved.slice(0, MAX_SESSIONS)) {
-    // resume only if the session file still exists; otherwise fresh in the same cwd
-    const sf = e.sessionFile && existsSync(e.sessionFile) ? e.sessionFile : null;
-    createSession(e.cwd, e.name || null, sf);
+// Claim the port FIRST, then start pi. Restoring sessions before listen() meant a busy
+// port crashed the server after the pi children were already running; they then died
+// writing to a closed pipe (EPIPE), one stack trace per restored tab.
+server.on("error", (e) => {
+  if (e.code === "EADDRINUSE") {
+    const find = process.platform === "win32" ? `netstat -ano | findstr :${PORT}` : `lsof -nP -iTCP:${PORT} -sTCP:LISTEN`;
+    console.error(`pi-piper: port ${PORT} is already in use: another pi-piper (or other app) is running.\n` +
+      `  find it:  ${find}\n  or use another port:  PI_GUI_PORT=${PORT + 1} node server.mjs`);
+  } else {
+    console.error(`pi-piper: can't listen on 127.0.0.1:${PORT}: ${e.message}`);
   }
-} else {
-  createSession(null, null);
-}
+  process.exit(1);
+});
 server.listen(PORT, "127.0.0.1", () => {
-  console.log(`pi-piper: http://127.0.0.1:${PORT}  (initial cwd: ${DEFAULT_CWD}, ${sessions.size} session${sessions.size === 1 ? "" : "s"}, restored ${Math.min(saved.length, MAX_SESSIONS)})`);
+  // restore previous sessions (or start one fresh)
+  const saved = loadSavedSessions();
+  if (saved.length) {
+    for (const e of saved.slice(0, MAX_SESSIONS)) {
+      // resume only if the session file still exists; otherwise fresh in the same cwd
+      const sf = e.sessionFile && existsSync(e.sessionFile) ? e.sessionFile : null;
+      createSession(e.cwd, e.name || null, sf);
+    }
+  } else {
+    createSession(null, null);
+  }
+  console.log(`pi-piper: http://127.0.0.1:${PORT}  (initial cwd: ${DEFAULT_CWD}, ${sessions.size} session${sessions.size === 1 ? "" : "s"}, restored ${Math.min(saved.length, MAX_SESSIONS)}, state: ${STATE_DIR})`);
 });
 let shuttingDown = false;
 async function killAll() {

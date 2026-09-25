@@ -134,6 +134,14 @@ async function main() {
   const lhHost = await req("GET", "/api/info", { host: `localhost:${PORT}` });
   check("host: accepts localhost Host", lhHost.status === 200, `got ${lhHost.status}`);
 
+  // ---- second instance on a busy port: clear error, exit 1, no pi spawned ----
+  const startsBefore = stubLogEntries(stubLog).filter((e) => e.event === "start").length;
+  const dup = spawnSync("node", [join(ROOT, "server.mjs")], { env: serverEnv(), encoding: "utf8", timeout: 10000 });
+  await sleep(300); // a stray child would have logged "start" by now
+  const startsAfter = stubLogEntries(stubLog).filter((e) => e.event === "start").length;
+  check("port in use: second server exits 1 with a clear message", dup.status === 1 && /pi-piper: port \d+ is already in use/.test(dup.stderr), `status=${dup.status} stderr=${(dup.stderr || "").slice(0, 200)}`);
+  check("port in use: no pi child spawned (no orphan EPIPE crashes)", startsAfter === startsBefore, `${startsBefore} → ${startsAfter}`);
+
   // ---- CSRF: other websites must not be able to drive pi through the browser ----
   const xOrigin = await req("POST", "/api/sessions", { body: {}, headers: { Origin: "https://evil.example.com" } });
   check("csrf: cross-origin POST refused (403)", xOrigin.status === 403, `got ${xOrigin.status}`);
