@@ -48,7 +48,7 @@ function openSse(sid) {
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 const tmp = mkdtempSync(join(tmpdir(), "pi-piper-e2e-"));
 const server = spawn("node", [join(ROOT, "server.mjs")], {
-  env: { ...process.env, PI_GUI_PORT: String(PORT), PI_GUI_CWD: tmp, PI_GUI_NOTIFY: "0", PI_GUI_STATE: join(tmp, "state.json") },
+  env: { ...process.env, PI_GUI_PORT: String(PORT), PI_GUI_CWD: tmp, PI_GUI_NOTIFY: "0", PI_GUI_STATE_DIR: tmp },
   stdio: ["ignore", "pipe", "pipe"],
 });
 let srvErr = ""; server.stderr.on("data", (c) => (srvErr += c));

@@ -40,6 +40,7 @@ function req(method, path, opts = {}) {
       headers["Content-Type"] = "application/json";
       headers["Content-Length"] = Buffer.byteLength(body);
     }
+    Object.assign(headers, opts.headers || {}); // e.g. browser-style Origin / Sec-Fetch-Site
     const u = new URL(path, BASE);
     const r = http.request(
       { host: "127.0.0.1", port: PORT, method, path: u.pathname + u.search, headers },
@@ -101,7 +102,7 @@ async function main() {
     PI_GUI_CWD: tmp,
     PI_BIN: join(ROOT, "test", "stub-pi.sh"),
     PI_GUI_NOTIFY: "0",
-    PI_GUI_STATE: join(tmp, "state.json"),
+    PI_GUI_STATE_DIR: tmp, // sessions.json + projects.json — never the user's real state
     STUB_LOG: stubLog,
     STUB_SESSION_FILE: stubSessionFile,
     STUB_EXIT_DELAY_MS: "400", // widen the restart-race window deterministically
@@ -133,9 +134,22 @@ async function main() {
   const lhHost = await req("GET", "/api/info", { host: `localhost:${PORT}` });
   check("host: accepts localhost Host", lhHost.status === 200, `got ${lhHost.status}`);
 
+  // ---- CSRF: other websites must not be able to drive pi through the browser ----
+  const xOrigin = await req("POST", "/api/sessions", { body: {}, headers: { Origin: "https://evil.example.com" } });
+  check("csrf: cross-origin POST refused (403)", xOrigin.status === 403, `got ${xOrigin.status}`);
+  const xSite = await req("GET", "/api/sessions", { headers: { "Sec-Fetch-Site": "cross-site" } });
+  check("csrf: Sec-Fetch-Site cross-site refused (403)", xSite.status === 403, `got ${xSite.status}`);
+  const plain = await req("POST", "/api/sessions", { headers: { "Content-Type": "text/plain" } });
+  check("csrf: non-JSON POST refused (415) — no preflight-free form/text POSTs", plain.status === 415, `got ${plain.status}`);
+  const sameOrigin = await req("GET", "/api/info", { headers: { Origin: `http://127.0.0.1:${PORT}`, "Sec-Fetch-Site": "same-origin" } });
+  check("csrf: same-origin browser request allowed", sameOrigin.status === 200, `got ${sameOrigin.status}`);
+  const page = await req("GET", "/", { headers: { "Sec-Fetch-Site": "cross-site" } });
+  check("page: UI served on navigation, with CSP + nosniff", page.status === 200 && /default-src 'none'/.test(page.headers?.["content-security-policy"] || "") && page.headers?.["x-content-type-options"] === "nosniff", JSON.stringify(page.headers));
+
   const s0 = okHost.json.sessions[0];
   childPids.add(s0.pid);
   check("initial session spawned with stub pi running", s0.running === true);
+  check("session ids are UUIDs (unguessable)", /^[0-9a-f-]{36}$/.test(s0.sid), s0.sid);
 
   // ---- SSE + command flow ----
   const sse0 = await openSse(s0.sid);
@@ -190,6 +204,10 @@ async function main() {
   writeFileSync(join(tmp, "bin.dat"), Buffer.from([0x00, 0x01, 0x42]));
   const bin = await req("GET", `/api/file?path=${encodeURIComponent(join(tmp, "bin.dat"))}`);
   check("file: binary detection", bin.json?.binary === true, JSON.stringify(bin.json));
+  const outside = await req("GET", `/api/file?path=${encodeURIComponent(join(ROOT, "README.md"))}`);
+  check("file: path outside the sessions' folders refused (403)", outside.status === 403, `got ${outside.status}`);
+  const dlOutside = await req("GET", `/api/download?path=${encodeURIComponent(join(ROOT, "README.md"))}`);
+  check("download: path outside the sessions' folders refused (403)", dlOutside.status === 403, `got ${dlOutside.status}`);
   const nf = await req("GET", `/api/file?path=${encodeURIComponent(join(tmp, "nope.txt"))}`);
   check("file: missing file → 400", nf.status === 400, `got ${nf.status}`);
 
@@ -222,6 +240,8 @@ async function main() {
     if (r.status === 200) { if (r.json?.pid) childPids.add(r.json.pid); lastCreatedSid = r.json?.sid ?? lastCreatedSid; } else if (r.status === 409) { saw409 = true; break; }
   }
   check("session limit enforced (409 at cap)", saw409);
+  const recent = existsSync(join(tmp, "projects.json")) ? JSON.parse(readFileSync(join(tmp, "projects.json"), "utf8")) : null;
+  check("state: recent projects written to PI_GUI_STATE_DIR", Array.isArray(recent) && recent.includes(tmp), JSON.stringify(recent));
   if (lastCreatedSid) await req("POST", "/api/close", { body: { sid: lastCreatedSid } }); // free a slot for the epipe scenario
   console.log("(stub log so far:", existsSync(stubLog) ? JSON.stringify(stubLogEntries(stubLog)) : "FILE MISSING at " + stubLog, ")");
 
